@@ -74,7 +74,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp: AuthContextValue['signUp'] = async (email, password) => {
     if (!supabase) return { error: 'Supabase not configured' };
-    const { error } = await supabase.auth.signUp({ email, password });
+    // Redirect the confirmation link back to wherever the user signed up (prod URL, not localhost).
+    // Requires this origin to be in Supabase → Auth → URL Configuration → Redirect URLs.
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: window.location.origin },
+    });
     return { error: error?.message ?? null };
   };
 
