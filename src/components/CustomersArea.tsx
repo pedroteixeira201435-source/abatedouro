@@ -1,10 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { Search, ChevronDown, Check, AlertTriangle, ArrowLeft, Download, RefreshCw, X, UserPlus, Phone, Mail, MapPin, Receipt, Wallet, Banknote, Trash2 } from 'lucide-react';
-import { Customer, Sale, Payment } from '../types';
-import { DUMMY_CUSTOMERS, DUMMY_SALES } from '../data';
+import { Search, Check, AlertTriangle, ArrowLeft, X, UserPlus, Phone, Mail, MapPin, Receipt, Wallet, Banknote, Trash2, Percent } from 'lucide-react';
+import { Customer, Sale, Payment, InterestCharge } from '../types';
+import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
+import { effectiveInterest, computeInterest, currentMonthKey, interestLabel } from '../lib/credit';
+import { formatStatementText, buildStatementPdf } from '../lib/invoice';
+import InvoiceActions from './InvoiceActions';
 
 export default function CustomersArea({ onBack }: { onBack: () => void }) {
-  const [customers, setCustomers] = useState<Customer[]>(DUMMY_CUSTOMERS);
+  const { customers, setCustomers, sales, settings } = useData();
+  const { user } = useAuth();
+  const operator = user?.email ?? 'Local';
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'balance' | 'lastPurchase'>('name');
   
@@ -49,8 +55,8 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
 
   const customerSales = useMemo(() => {
     if (!selectedCustomer) return [];
-    return DUMMY_SALES.filter(s => s.customerId === selectedCustomer.id && s.paymentType === 'Credit' && s.status !== 'Voided');
-  }, [selectedCustomer]);
+    return sales.filter(s => s.customerId === selectedCustomer.id && s.paymentType === 'Credit' && s.status !== 'Voided');
+  }, [selectedCustomer, sales]);
 
   const handleSaveCustomer = () => {
     if (!newCustomerData.name?.trim() || !newCustomerData.phone?.trim()) {
@@ -90,7 +96,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
       date: new Date(),
       amount: paymentData.amount,
       method: paymentData.method,
-      operator: 'ADMIN',
+      operator,
       note: paymentData.note,
       syncStatus: 'Pending Sync'
     };
@@ -118,15 +124,57 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
     setSelectedCustomer(null);
   };
 
+  const updateCustomer = (id: string, patch: Partial<Customer>) => {
+    setCustomers(customers.map(c => (c.id === id ? { ...c, ...patch } : c)));
+    setSelectedCustomer(prev => (prev && prev.id === id ? { ...prev, ...patch } : prev));
+  };
+
+  // Post one month's interest to every account carrying a balance (guarded against double runs).
+  const applyMonthlyInterest = () => {
+    const month = currentMonthKey();
+    const targets = customers.filter(c => c.balance > 0 && c.lastInterestRun !== month);
+    if (targets.length === 0) {
+      alert('No accounts are due interest this month (all already charged or zero balance).');
+      return;
+    }
+    let total = 0;
+    let charged = 0;
+    const updated = customers.map(c => {
+      if (c.balance <= 0 || c.lastInterestRun === month) return c;
+      const amount = computeInterest(c.balance, effectiveInterest(c, settings));
+      if (amount <= 0) return { ...c, lastInterestRun: month };
+      total += amount;
+      charged++;
+      const charge: InterestCharge = {
+        id: Math.random().toString(),
+        date: new Date(),
+        amount,
+        balanceAt: c.balance,
+        note: `Monthly interest (${interestLabel(effectiveInterest(c, settings))})`,
+      };
+      return {
+        ...c,
+        balance: c.balance + amount,
+        charges: [charge, ...(c.charges || [])],
+        lastInterestRun: month,
+        status: c.creditLimit && c.balance + amount > c.creditLimit ? 'Overdue' as const : c.status,
+      };
+    });
+    setCustomers(updated);
+    alert(charged === 0
+      ? 'Interest is set to 0 — nothing charged. Configure it in Settings → Credit.'
+      : `Applied N$ ${total.toFixed(2)} interest across ${charged} account(s) for ${month}.`);
+  };
+
   return (
     <div className="flex flex-col h-screen w-full bg-[#0C0C0C] text-[#E4E3E0] font-sans overflow-hidden">
       {/* Header */}
-      <header className="flex justify-between items-center px-6 py-4 bg-[#151515] border-b border-[#262626] shrink-0">
+      <header className="flex flex-wrap gap-3 justify-between items-center px-4 sm:px-6 py-4 bg-[#151515] border-b border-[#262626] shrink-0">
         <div>
-           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">Agility Investments CC</div>
-           <h2 className="text-2xl font-bold tracking-tight">Customer <span className="text-[#3B82F6]">Accounts</span></h2>
+           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">{settings.businessName || 'Butchery Control'}</div>
+           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Customer <span className="text-[#3B82F6]">Accounts</span></h2>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 sm:gap-6">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#10B981] shadow-[0_0_8px_#10B981]"></span>
             <span className="text-xs font-medium uppercase tracking-wider">Cloud Synced</span>
@@ -139,12 +187,12 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-hidden flex flex-col p-6">
-        
+      <div className="flex-1 overflow-hidden flex flex-col p-4 sm:p-6">
+
         {/* Toolbar */}
-        <div className="flex justify-between items-center mb-6 shrink-0">
-          <div className="flex gap-4 flex-1">
-            <div className="flex-1 max-w-sm relative">
+        <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3 mb-6 shrink-0">
+          <div className="flex flex-col sm:flex-row gap-3 flex-1">
+            <div className="flex-1 sm:max-w-sm relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#555]" />
               <input 
                 type="text"
@@ -165,13 +213,23 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
             </select>
           </div>
           
-          <button 
-            onClick={() => setIsAddingCustomer(true)}
-            className="bg-[#3B82F6] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-[#2563EB] transition-colors cursor-pointer"
-          >
-            <UserPlus className="w-4 h-4" />
-            Add New Customer
-          </button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              onClick={applyMonthlyInterest}
+              className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#333] transition-colors cursor-pointer"
+              title="Charge this month's interest to all accounts with a balance"
+            >
+              <Percent className="w-4 h-4" />
+              Apply Monthly Interest
+            </button>
+            <button
+              onClick={() => setIsAddingCustomer(true)}
+              className="bg-[#3B82F6] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#2563EB] transition-colors cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add New Customer
+            </button>
+          </div>
         </div>
 
         {/* Data Table */}
@@ -256,7 +314,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                   </div>
                 )}
                 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Customer Name *</label>
                     <input 
@@ -277,7 +335,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Email Address</label>
                     <input 
@@ -340,20 +398,14 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                    <div className="text-xs uppercase tracking-widest text-[#888] mb-1">Account Overview</div>
                    <div className="text-2xl font-bold">{selectedCustomer.name}</div>
                  </div>
-                 <div className="flex items-center gap-4">
-                   <button className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer flex items-center gap-2">
-                     <Download className="w-4 h-4" />
-                     Statement
-                   </button>
-                   <button onClick={() => setSelectedCustomer(null)} className="text-[#555] hover:text-white cursor-pointer p-2 bg-[#222] rounded-full">
-                     <X className="w-5 h-5" />
-                   </button>
-                 </div>
+                 <button onClick={() => setSelectedCustomer(null)} className="text-[#555] hover:text-white cursor-pointer p-2 bg-[#222] rounded-full">
+                   <X className="w-5 h-5" />
+                 </button>
               </div>
               
-              <div className="flex-1 overflow-hidden flex">
+              <div className="flex-1 overflow-y-auto md:overflow-hidden flex flex-col md:flex-row">
                 {/* Left Column: Summary */}
-                <div className="w-1/3 bg-[#111] border-r border-[#262626] p-6 flex flex-col justify-between overflow-y-auto">
+                <div className="w-full md:w-1/3 bg-[#111] border-b md:border-b-0 md:border-r border-[#262626] p-6 flex flex-col justify-between md:overflow-y-auto">
                   <div className="space-y-6">
                     <div className="bg-[#151515] p-5 rounded-2xl border border-[#262626] text-center">
                       <div className="text-[10px] uppercase tracking-widest text-[#888] mb-2">Outstanding Balance</div>
@@ -366,7 +418,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                         </div>
                       )}
                       
-                      <button 
+                      <button
                         onClick={() => setIsRecordingPayment(true)}
                         disabled={selectedCustomer.balance === 0}
                         className="mt-6 w-full bg-[#10B981] text-white px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#059669] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
@@ -374,6 +426,47 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                         <Wallet className="w-4 h-4" />
                         Record Payment
                       </button>
+                    </div>
+
+                    {/* Interest policy for this account */}
+                    <div className="bg-[#151515] p-4 rounded-2xl border border-[#262626]">
+                      <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-[#888] mb-3">
+                        <Percent className="w-3.5 h-3.5" /> Monthly Interest
+                      </div>
+                      <div className="flex gap-2">
+                        <select
+                          value={selectedCustomer.interest ? selectedCustomer.interest.mode : 'default'}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            const next = v === 'default' ? undefined : { mode: v as 'fixed' | 'percent', value: selectedCustomer.interest?.value ?? 0 };
+                            updateCustomer(selectedCustomer.id, { interest: next });
+                          }}
+                          className="flex-1 bg-[#222] border border-[#333] rounded-lg py-2 px-2 text-xs focus:outline-none focus:border-[#555] appearance-none cursor-pointer"
+                        >
+                          <option value="default">Use default ({interestLabel(settings.interest)})</option>
+                          <option value="percent">Percent (%)</option>
+                          <option value="fixed">Fixed (N$)</option>
+                        </select>
+                        {selectedCustomer.interest && (
+                          <input
+                            type="number"
+                            value={selectedCustomer.interest.value}
+                            onChange={(e) => updateCustomer(selectedCustomer.id, { interest: { mode: selectedCustomer.interest!.mode, value: Number(e.target.value) } })}
+                            className="w-20 bg-[#222] border border-[#333] rounded-lg py-2 px-2 text-xs font-mono focus:outline-none focus:border-[#555]"
+                          />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Send account statement */}
+                    <div className="bg-[#151515] p-4 rounded-2xl border border-[#262626]">
+                      <div className="text-[10px] uppercase tracking-widest text-[#888] mb-3">Send Statement</div>
+                      <InvoiceActions
+                        phone={selectedCustomer.phone}
+                        message={formatStatementText(selectedCustomer, sales, settings)}
+                        pdf={() => buildStatementPdf(selectedCustomer, sales, settings)}
+                        filename={`statement-${selectedCustomer.name.replace(/\s+/g, '-')}`}
+                      />
                     </div>
 
                     <div className="space-y-4">
@@ -414,7 +507,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                 {/* Right Column: History */}
                 <div className="flex-1 flex flex-col">
                   {/* Tabs could go here in future */}
-                  <div className="p-6 overflow-y-auto flex-1 space-y-8">
+                  <div className="p-6 md:overflow-y-auto md:flex-1 space-y-8">
                     
                     {/* Unpaid/Recent Purchases */}
                     <div>
@@ -447,6 +540,36 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                         </div>
                       )}
                     </div>
+
+                    {/* Interest charges */}
+                    {selectedCustomer.charges && selectedCustomer.charges.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-bold uppercase tracking-widest mb-4 flex items-center gap-2">
+                          <Percent className="w-4 h-4 text-[#555]" />
+                          Interest Charges
+                        </h3>
+                        <div className="border border-[#262626] rounded-xl overflow-hidden bg-[#111]">
+                          <table className="w-full text-left">
+                            <thead className="bg-[#151515] border-b border-[#262626]">
+                              <tr>
+                                <th className="py-2 px-4 text-[10px] uppercase tracking-widest text-[#888]">Date</th>
+                                <th className="py-2 px-4 text-[10px] uppercase tracking-widest text-[#888]">Note</th>
+                                <th className="py-2 px-4 text-[10px] uppercase tracking-widest text-[#888] text-right">Amount</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {selectedCustomer.charges.map(ch => (
+                                <tr key={ch.id} className="border-b border-[#262626] last:border-0">
+                                  <td className="py-3 px-4 text-sm text-[#888]">{new Date(ch.date).toLocaleDateString()}</td>
+                                  <td className="py-3 px-4 text-sm text-[#555] truncate max-w-[180px]">{ch.note}</td>
+                                  <td className="py-3 px-4 text-sm font-mono font-bold text-yellow-500 text-right">+ N$ {ch.amount.toFixed(2)}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Payments */}
                     <div>

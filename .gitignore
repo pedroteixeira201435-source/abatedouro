@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# License key generator — keep private (vendor tool)
+assets/ativador*.html

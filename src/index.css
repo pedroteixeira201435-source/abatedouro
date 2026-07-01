@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* When printing the AFS, show only the document (white paper, black text). */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #afs-print,
+  #afs-print * {
+    visibility: visible;
+  }
+  #afs-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 24px 32px;
+    box-shadow: none;
+    border-radius: 0;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .break-before-page {
+    break-before: page;
+  }
+  .break-after-page {
+    break-after: page;
+  }
+}

@@ -1,4 +1,9 @@
 import React, { useState } from 'react';
+import SyncSettings from './SyncSettings';
+import UserManagement from './UserManagement';
+import { useData } from '../context/DataContext';
+import { BusinessSettings } from '../types';
+import { computeStatus } from '../lib/activation';
 import { 
   Building2, 
   Users, 
@@ -15,37 +20,26 @@ import {
   Trash2,
   RefreshCw,
   Download,
-  AlertTriangle
+  AlertTriangle,
+  Check
 } from 'lucide-react';
 
 type Tab = 'profile' | 'users' | 'sync' | 'inventory' | 'credit' | 'receipts' | 'expenses' | 'about';
 
 export default function SettingsArea({ onBack }: { onBack: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
+  const { settings, setSettings, activation } = useData();
 
-  // Dummy State for Settings
-  const [businessName, setBusinessName] = useState('Agility Investments CC');
-  const [businessAddress, setBusinessAddress] = useState('123 Main St, Windhoek');
-  const [businessPhone, setBusinessPhone] = useState('081 123 4567');
-  
-  const [users, setUsers] = useState([
-    { id: '1', email: 'admin@agility.com', name: 'System Admin', role: 'ADMIN', status: 'Active', lastLogin: '2026-06-30 08:00' },
-    { id: '2', email: 'till1@agility.com', name: 'Front Desk 1', role: 'TILL', status: 'Active', lastLogin: '2026-06-30 07:30' },
-  ]);
+  // All settings persist to the shared snapshot (localStorage + Supabase per company).
+  const update = (patch: Partial<BusinessSettings>) => setSettings((s) => ({ ...s, ...patch }));
+  const {
+    businessName, businessAddress, businessPhone,
+    lowStockThreshold, allowNegativeStock,
+    creditLimitBehavior, billingCycle, interest,
+    receiptHeader, receiptFooter, receiptPrefix,
+    expenseCategories,
+  } = settings;
 
-  const [lowStockThreshold, setLowStockThreshold] = useState(5);
-  const [allowNegativeStock, setAllowNegativeStock] = useState(false);
-
-  const [creditLimitBehavior, setCreditLimitBehavior] = useState<'Warn' | 'Block'>('Warn');
-  const [billingCycle, setBillingCycle] = useState('Last day of the month');
-
-  const [receiptHeader, setReceiptHeader] = useState('Agility Investments CC\n123 Main St, Windhoek\n081 123 4567');
-  const [receiptFooter, setReceiptFooter] = useState('Thank you for your business!');
-  const [receiptPrefix, setReceiptPrefix] = useState('AG-');
-
-  const [expenseCategories, setExpenseCategories] = useState([
-    'Staff Wages', 'Cold Room/Utilities', 'Packaging', 'Processing Costs'
-  ]);
   const [newExpenseCat, setNewExpenseCat] = useState('');
 
   const renderContent = () => {
@@ -63,8 +57,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Business Name</label>
                 <input 
                   type="text" 
-                  value={businessName} 
-                  onChange={e => setBusinessName(e.target.value)}
+                  value={businessName}
+                  onChange={e => update({ businessName: e.target.value })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" 
                 />
               </div>
@@ -72,8 +66,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Physical Address</label>
                 <input 
                   type="text" 
-                  value={businessAddress} 
-                  onChange={e => setBusinessAddress(e.target.value)}
+                  value={businessAddress}
+                  onChange={e => update({ businessAddress: e.target.value })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" 
                 />
               </div>
@@ -81,8 +75,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Phone Number / Contact</label>
                 <input 
                   type="text" 
-                  value={businessPhone} 
-                  onChange={e => setBusinessPhone(e.target.value)}
+                  value={businessPhone}
+                  onChange={e => update({ businessPhone: e.target.value })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" 
                 />
               </div>
@@ -109,106 +103,10 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
         );
       
       case 'users':
-        return (
-          <div className="space-y-6 max-w-4xl">
-            <div className="flex justify-between items-end">
-              <div>
-                <h3 className="text-lg font-bold mb-2">User & Role Management</h3>
-                <p className="text-sm text-[#888]">Manage staff access and permissions.</p>
-              </div>
-              <button className="bg-[#3B82F6] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#2563EB] transition-colors cursor-pointer flex items-center gap-2">
-                <Plus className="w-4 h-4" />
-                Add New User
-              </button>
-            </div>
-            
-            <div className="bg-[#111] border border-[#262626] rounded-xl overflow-hidden">
-              <table className="w-full text-left">
-                <thead className="bg-[#151515] border-b border-[#262626]">
-                  <tr>
-                    <th className="py-3 px-4 text-xs font-bold uppercase tracking-widest text-[#888]">User</th>
-                    <th className="py-3 px-4 text-xs font-bold uppercase tracking-widest text-[#888]">Role</th>
-                    <th className="py-3 px-4 text-xs font-bold uppercase tracking-widest text-[#888]">Status</th>
-                    <th className="py-3 px-4 text-xs font-bold uppercase tracking-widest text-[#888]">Last Login</th>
-                    <th className="py-3 px-4 text-xs font-bold uppercase tracking-widest text-[#888] text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {users.map(u => (
-                    <tr key={u.id} className="border-b border-[#262626] last:border-0">
-                      <td className="py-3 px-4">
-                        <div className="font-bold">{u.name}</div>
-                        <div className="text-xs text-[#888]">{u.email}</div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={`inline-block px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest ${u.role === 'ADMIN' ? 'bg-[#3B82F6]/20 text-[#3B82F6]' : 'bg-[#888]/20 text-[#CCC]'}`}>
-                          {u.role}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-sm text-[#10B981]">{u.status}</td>
-                      <td className="py-3 px-4 text-sm text-[#888]">{u.lastLogin}</td>
-                      <td className="py-3 px-4 text-right">
-                        <button className="text-xs text-[#3B82F6] hover:text-white uppercase font-bold tracking-widest mr-4 cursor-pointer">Edit</button>
-                        <button className="text-xs text-red-500 hover:text-red-400 uppercase font-bold tracking-widest cursor-pointer">Remove</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            
-            <div className="bg-yellow-500/10 border border-yellow-500/20 p-4 rounded-xl flex gap-3 text-yellow-500">
-              <AlertTriangle className="w-5 h-5 shrink-0" />
-              <div className="text-sm">
-                <strong>Offline Warning:</strong> Adding or removing users requires an active internet connection to authorize Google accounts.
-              </div>
-            </div>
-          </div>
-        );
-      
+        return <UserManagement />;
+
       case 'sync':
-        return (
-          <div className="space-y-6 max-w-2xl">
-            <div>
-              <h3 className="text-lg font-bold mb-4">Sync & Storage</h3>
-              <p className="text-sm text-[#888] mb-6">Manage data synchronization with Google Drive.</p>
-            </div>
-            
-            <div className="bg-[#111] border border-[#262626] p-6 rounded-2xl space-y-6">
-              <div className="flex justify-between items-center">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-widest text-[#888] mb-1">Connected Account</div>
-                  <div className="font-semibold">admin@agility.com</div>
-                </div>
-                <button className="text-xs font-bold uppercase tracking-widest text-[#3B82F6] hover:text-white transition-colors cursor-pointer border border-[#3B82F6]/30 px-3 py-1.5 rounded-lg">
-                  Reconnect
-                </button>
-              </div>
-              
-              <div className="pt-4 border-t border-[#262626] flex justify-between items-center">
-                <div>
-                  <div className="text-xs font-bold uppercase tracking-widest text-[#888] mb-1">Sync Status</div>
-                  <div className="flex items-center gap-2 text-[#10B981] font-semibold">
-                    <Check className="w-4 h-4" />
-                    All data synced
-                  </div>
-                  <div className="text-xs text-[#555] mt-1">Last sync: 2 mins ago</div>
-                </div>
-                <button className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4" />
-                  Force Sync Now
-                </button>
-              </div>
-              
-              <div className="pt-4 border-t border-[#262626]">
-                <button className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer flex items-center gap-2">
-                  <Download className="w-4 h-4" />
-                  Download Data Backup (JSON)
-                </button>
-              </div>
-            </div>
-          </div>
-        );
+        return <SyncSettings />;
 
       case 'inventory':
         return (
@@ -223,8 +121,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Default Low-Stock Threshold</label>
                 <input 
                   type="number" 
-                  value={lowStockThreshold} 
-                  onChange={e => setLowStockThreshold(Number(e.target.value))}
+                  value={lowStockThreshold}
+                  onChange={e => update({ lowStockThreshold: Number(e.target.value) })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" 
                 />
                 <p className="text-xs text-[#555] mt-2">This value is applied to new items by default.</p>
@@ -236,7 +134,7 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                   <div className="text-xs text-[#888] mt-1">If enabled, TILL can sell items even if stock drops below zero.</div>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" checked={allowNegativeStock} onChange={e => setAllowNegativeStock(e.target.checked)} className="sr-only peer" />
+                  <input type="checkbox" checked={allowNegativeStock} onChange={e => update({ allowNegativeStock: e.target.checked })} className="sr-only peer" />
                   <div className="w-11 h-6 bg-[#333] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#10B981]"></div>
                 </label>
               </div>
@@ -278,9 +176,9 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
             <div className="space-y-6">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Credit Limit Exceeded Behavior</label>
-                <select 
+                <select
                   value={creditLimitBehavior}
-                  onChange={e => setCreditLimitBehavior(e.target.value as 'Warn' | 'Block')}
+                  onChange={e => update({ creditLimitBehavior: e.target.value as 'Warn' | 'Block' })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none cursor-pointer"
                 >
                   <option value="Warn">Warn but allow sale</option>
@@ -291,19 +189,49 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Monthly Billing Cycle Due Date</label>
-                <input 
-                  type="text" 
-                  value={billingCycle} 
-                  onChange={e => setBillingCycle(e.target.value)}
-                  className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" 
+                <input
+                  type="text"
+                  value={billingCycle}
+                  onChange={e => update({ billingCycle: e.target.value })}
+                  className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]"
                 />
               </div>
 
-              <div className="pt-6 border-t border-[#262626]">
-                <button className="bg-[#10B981] text-white px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#059669] transition-colors cursor-pointer flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
-                  <Save className="w-4 h-4" />
-                  Save Policies
-                </button>
+              {/* Interest on overdue balances */}
+              <div className="bg-[#111] border border-[#262626] p-5 rounded-2xl space-y-4">
+                <div>
+                  <div className="font-bold text-sm">Interest on Overdue Balances</div>
+                  <div className="text-xs text-[#888] mt-1">Default charge applied monthly to accounts carrying a balance. Each customer can override this on their profile.</div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#888] mb-2">Interest Type</label>
+                    <select
+                      value={interest.mode}
+                      onChange={e => update({ interest: { ...interest, mode: e.target.value as 'fixed' | 'percent' } })}
+                      className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none cursor-pointer"
+                    >
+                      <option value="percent">Percentage (%)</option>
+                      <option value="fixed">Fixed amount (N$)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#888] mb-2">
+                      {interest.mode === 'percent' ? 'Rate (% per month)' : 'Amount (N$ per month)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={interest.value}
+                      onChange={e => update({ interest: { ...interest, value: Number(e.target.value) } })}
+                      className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-[#555]">Set to 0 to disable interest. Run interest each month from Customers → "Apply Monthly Interest".</p>
+              </div>
+
+              <div className="pt-2 text-xs text-[#10B981] flex items-center gap-2">
+                <Check className="w-4 h-4" /> Changes save automatically.
               </div>
             </div>
           </div>
@@ -322,8 +250,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Receipt Number Prefix</label>
                 <input 
                   type="text" 
-                  value={receiptPrefix} 
-                  onChange={e => setReceiptPrefix(e.target.value)}
+                  value={receiptPrefix}
+                  onChange={e => update({ receiptPrefix: e.target.value })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] font-mono" 
                 />
               </div>
@@ -331,8 +259,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Receipt Header Text</label>
                 <textarea 
-                  value={receiptHeader} 
-                  onChange={e => setReceiptHeader(e.target.value)}
+                  value={receiptHeader}
+                  onChange={e => update({ receiptHeader: e.target.value })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl p-4 text-sm focus:outline-none focus:border-[#555] min-h-[100px] font-mono whitespace-pre-wrap" 
                 />
               </div>
@@ -340,8 +268,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Receipt Footer Text</label>
                 <textarea 
-                  value={receiptFooter} 
-                  onChange={e => setReceiptFooter(e.target.value)}
+                  value={receiptFooter}
+                  onChange={e => update({ receiptFooter: e.target.value })}
                   className="w-full bg-[#222] border border-[#333] rounded-xl p-4 text-sm focus:outline-none focus:border-[#555] min-h-[60px] font-mono" 
                 />
               </div>
@@ -368,7 +296,7 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
               {expenseCategories.map(cat => (
                 <div key={cat} className="flex justify-between items-center bg-[#151515] p-3 rounded-lg border border-[#262626]">
                   <span className="text-sm font-semibold">{cat}</span>
-                  <button onClick={() => setExpenseCategories(expenseCategories.filter(c => c !== cat))} className="text-red-500 hover:text-red-400 p-1 cursor-pointer">
+                  <button onClick={() => update({ expenseCategories: expenseCategories.filter(c => c !== cat) })} className="text-red-500 hover:text-red-400 p-1 cursor-pointer">
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
@@ -385,7 +313,7 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                 <button 
                   onClick={() => {
                     if (newExpenseCat.trim() && !expenseCategories.includes(newExpenseCat.trim())) {
-                      setExpenseCategories([...expenseCategories, newExpenseCat.trim()]);
+                      update({ expenseCategories: [...expenseCategories, newExpenseCat.trim()] });
                       setNewExpenseCat('');
                     }
                   }}
@@ -407,21 +335,32 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
             </div>
             
             <div className="bg-[#111] border border-[#262626] p-6 rounded-2xl space-y-4 text-sm">
+              {(() => {
+                const lic = computeStatus(activation);
+                return (
+                  <div className="flex justify-between items-center border-b border-[#262626] pb-4">
+                    <span className="text-[#888]">License</span>
+                    {lic.activated ? (
+                      <span className={`font-mono font-bold ${lic.expired ? 'text-[#D42C2C]' : 'text-[#10B981]'}`}>
+                        {lic.expired ? 'Expired' : 'Active'} · {lic.durationDays}d · exp {lic.expiresAt?.toLocaleDateString()}
+                      </span>
+                    ) : (
+                      <span className="font-mono font-bold text-[#888]">Not activated</span>
+                    )}
+                  </div>
+                );
+              })()}
               <div className="flex justify-between items-center border-b border-[#262626] pb-4">
                 <span className="text-[#888]">App Version</span>
                 <span className="font-mono font-bold">1.0.0-beta</span>
               </div>
               <div className="flex justify-between items-center border-b border-[#262626] pb-4">
-                <span className="text-[#888]">Last Update</span>
-                <span>June 30, 2026</span>
-              </div>
-              <div className="flex justify-between items-center border-b border-[#262626] pb-4">
-                <span className="text-[#888]">Developer</span>
-                <span>AI Studio Built</span>
+                <span className="text-[#888]">Business</span>
+                <span>{businessName || '—'}</span>
               </div>
               <div className="flex justify-between items-center pt-2">
-                <span className="text-[#888]">Support Email</span>
-                <span className="text-[#3B82F6]">support@agilityinvestments.com</span>
+                <span className="text-[#888]">Support Contact</span>
+                <span>{businessPhone || '—'}</span>
               </div>
             </div>
           </div>
@@ -443,21 +382,21 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
   ];
 
   return (
-    <div className="flex h-screen w-full bg-[#0C0C0C] text-[#E4E3E0] font-sans overflow-hidden">
-      
-      {/* Sidebar */}
-      <div className="w-64 bg-[#111] border-r border-[#262626] flex flex-col shrink-0">
-        <div className="p-6 border-b border-[#262626]">
-           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">Agility Investments CC</div>
+    <div className="flex flex-col md:flex-row min-h-screen md:h-screen w-full bg-[#0C0C0C] text-[#E4E3E0] font-sans md:overflow-hidden">
+
+      {/* Sidebar — becomes a scrollable top bar on mobile */}
+      <div className="w-full md:w-64 bg-[#111] border-b md:border-b-0 md:border-r border-[#262626] flex flex-col shrink-0">
+        <div className="p-4 sm:p-6 border-b border-[#262626]">
+           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">{businessName || 'Butchery Control'}</div>
            <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
         </div>
-        
-        <div className="flex-1 overflow-y-auto p-4 space-y-1">
+
+        <div className="flex md:flex-col md:flex-1 overflow-x-auto md:overflow-y-auto p-3 md:p-4 gap-1 md:space-y-1">
           {navItems.map(item => (
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id as Tab)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-colors cursor-pointer ${
+              className={`w-auto md:w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                 activeTab === item.id 
                   ? 'bg-[#222] text-white border border-[#333]' 
                   : 'text-[#888] hover:text-[#E4E3E0] hover:bg-[#151515] border border-transparent'
@@ -478,8 +417,8 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto p-8">
+      <div className="flex-1 flex flex-col md:overflow-hidden">
+        <div className="flex-1 md:overflow-y-auto p-4 sm:p-8">
           {renderContent()}
         </div>
       </div>

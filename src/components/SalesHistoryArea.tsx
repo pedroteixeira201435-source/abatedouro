@@ -1,10 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, Check, AlertTriangle, ArrowLeft, Download, RefreshCw, X, Receipt, Trash2 } from 'lucide-react';
 import { Sale } from '../types';
-import { DUMMY_SALES } from '../data';
+import { useData } from '../context/DataContext';
+import InvoiceActions from './InvoiceActions';
+import { formatSaleText, buildSalePdf } from '../lib/invoice';
 
 export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
-  const [sales, setSales] = useState<Sale[]>(DUMMY_SALES);
+  const { sales, setSales, products, setProducts, customers, setCustomers, settings } = useData();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
@@ -78,25 +80,26 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
 
   const handleVoidSale = () => {
     if (!voidingSale || !voidReason.trim()) return;
+    const sale = voidingSale;
 
-    setSales(sales.map(s => {
-      if (s.id === voidingSale.id) {
-        return {
-          ...s,
-          status: 'Voided',
-          voidReason: voidReason.trim(),
-        };
-      }
-      return s;
+    // Reverse the sale's effects: return sold stock to inventory…
+    setProducts(products.map(p => {
+      const returned = sale.items.filter(i => i.product.id === p.id).reduce((s, i) => s + i.quantity, 0);
+      return returned ? { ...p, stock: p.stock + returned } : p;
     }));
-    
-    // Also update selectedSale if it's the same one
-    if (selectedSale?.id === voidingSale.id) {
-      setSelectedSale({
-        ...selectedSale,
-        status: 'Voided',
-        voidReason: voidReason.trim(),
-      });
+
+    // …and, for a credit sale, remove the amount from the customer's outstanding balance.
+    if (sale.paymentType === 'Credit' && sale.customerId) {
+      setCustomers(customers.map(c => {
+        if (c.id !== sale.customerId) return c;
+        const balance = Math.max(0, c.balance - sale.total);
+        return { ...c, balance, status: balance === 0 ? 'Current' : c.status };
+      }));
+    }
+
+    setSales(sales.map(s => (s.id === sale.id ? { ...s, status: 'Voided', voidReason: voidReason.trim() } : s)));
+    if (selectedSale?.id === sale.id) {
+      setSelectedSale({ ...selectedSale, status: 'Voided', voidReason: voidReason.trim() });
     }
 
     setVoidingSale(null);
@@ -135,13 +138,13 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex flex-col h-screen w-full bg-[#0C0C0C] text-[#E4E3E0] font-sans overflow-hidden">
       {/* Header */}
-      <header className="flex justify-between items-center px-6 py-4 bg-[#151515] border-b border-[#262626] shrink-0">
+      <header className="flex flex-wrap gap-3 justify-between items-center px-4 sm:px-6 py-4 bg-[#151515] border-b border-[#262626] shrink-0">
         <div>
-           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">Agility Investments CC</div>
-           <h2 className="text-2xl font-bold tracking-tight">Sales <span className="text-[#D42C2C]">History</span></h2>
+           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">{settings.businessName || 'Butchery Control'}</div>
+           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Sales <span className="text-[#D42C2C]">History</span></h2>
         </div>
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-4 sm:gap-6">
+          <div className="hidden sm:flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#10B981] shadow-[0_0_8px_#10B981]"></span>
             <span className="text-xs font-medium uppercase tracking-wider">Cloud Synced</span>
           </div>
@@ -153,7 +156,7 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
       </header>
 
       {/* Summary Bar */}
-      <div className="bg-[#111] border-b border-[#262626] p-6 shrink-0 grid grid-cols-4 gap-6">
+      <div className="bg-[#111] border-b border-[#262626] p-4 sm:p-6 shrink-0 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
         <div className="flex flex-col bg-[#151515] p-4 rounded-xl border border-[#262626]">
           <span className="text-[10px] uppercase tracking-widest text-[#888] mb-1">Total Revenue</span>
           <span className="text-2xl font-mono">N$ {summary.totalRevenue.toFixed(2)}</span>
@@ -176,12 +179,12 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
       </div>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-hidden flex flex-col p-6">
-        
+      <div className="flex-1 overflow-hidden flex flex-col p-4 sm:p-6">
+
         {/* Toolbar */}
-        <div className="flex justify-between items-center mb-6 shrink-0">
-          <div className="flex gap-4 flex-1">
-            <div className="flex-1 max-w-sm relative">
+        <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3 mb-6 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 flex-1">
+            <div className="flex-1 sm:max-w-sm relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#555]" />
               <input 
                 type="text"
@@ -231,7 +234,7 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
             </select>
           </div>
           
-          <button onClick={handleExportCSV} className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-[#333] transition-colors cursor-pointer">
+          <button onClick={handleExportCSV} className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#333] transition-colors cursor-pointer w-full lg:w-auto shrink-0">
             <Download className="w-4 h-4" />
             Export CSV
           </button>
@@ -317,7 +320,7 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
               
               <div className="p-6 overflow-y-auto flex-1 space-y-6">
                 
-                <div className="grid grid-cols-4 gap-4 bg-[#111] p-4 rounded-xl border border-[#262626]">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-[#111] p-4 rounded-xl border border-[#262626]">
                   <div>
                     <div className="text-[10px] uppercase tracking-widest text-[#888] mb-1">Date</div>
                     <div className="text-sm">{selectedSale.date.toLocaleDateString()}</div>
@@ -390,12 +393,17 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
 
               </div>
 
-              <div className="p-6 border-t border-[#262626] flex justify-between items-center shrink-0 bg-[#111]">
-                 <div className="flex gap-4">
-                   <button className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer flex items-center gap-2">
-                     <Receipt className="w-4 h-4" />
-                     Reprint Receipt
-                   </button>
+              <div className="p-6 border-t border-[#262626] flex flex-wrap gap-3 justify-between items-center shrink-0 bg-[#111]">
+                 <div className="w-full sm:w-72">
+                   <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-[#888] mb-2">
+                     <Receipt className="w-3.5 h-3.5" /> Reprint / Send Receipt
+                   </div>
+                   <InvoiceActions
+                     phone={customers.find((c) => c.id === selectedSale.customerId)?.phone}
+                     message={formatSaleText(selectedSale, settings)}
+                     pdf={() => buildSalePdf(selectedSale, settings)}
+                     filename={`receipt-${selectedSale.id}`}
+                   />
                  </div>
                  {selectedSale.status === 'Completed' && (
                    <button 

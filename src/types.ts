@@ -67,6 +67,21 @@ export interface Purchase {
   operator: string;
 }
 
+/** Interest charged on overdue credit — either a flat N$ amount or a percentage of the overdue balance. */
+export interface CreditInterest {
+  mode: 'fixed' | 'percent';
+  value: number; // N$ when 'fixed'; percentage points when 'percent' (e.g. 10 = 10%)
+}
+
+/** A monthly interest charge posted against a customer's outstanding balance. */
+export interface InterestCharge {
+  id: string;
+  date: Date;
+  amount: number;
+  balanceAt: number; // the outstanding balance the interest was computed on
+  note?: string;
+}
+
 export interface Customer {
   id: string;
   name: string;
@@ -79,4 +94,44 @@ export interface Customer {
   status: 'Current' | 'Overdue';
   lastPurchaseDate?: Date;
   payments: Payment[];
+  /** Per-customer override of the global interest policy. Falls back to BusinessSettings.interest. */
+  interest?: CreditInterest;
+  /** Interest charges posted at month-end. */
+  charges?: InterestCharge[];
+  /** Guards against charging interest twice in the same month (ISO yyyy-mm). */
+  lastInterestRun?: string;
 }
+
+/** Business-level configuration (persisted in the shared snapshot, synced per company). */
+export interface BusinessSettings {
+  businessName: string;
+  businessAddress: string;
+  businessPhone: string;
+  // Credit policy
+  creditLimitBehavior: 'Warn' | 'Block';
+  billingCycle: string;
+  interest: CreditInterest;
+  // Receipt / invoice
+  receiptPrefix: string;
+  receiptHeader: string;
+  receiptFooter: string;
+  // Inventory defaults
+  lowStockThreshold: number;
+  allowNegativeStock: boolean;
+  expenseCategories: string[];
+}
+
+export const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
+  businessName: '',
+  businessAddress: '',
+  businessPhone: '',
+  creditLimitBehavior: 'Warn',
+  billingCycle: 'Last day of the month',
+  interest: { mode: 'percent', value: 0 },
+  receiptPrefix: 'INV-',
+  receiptHeader: '',
+  receiptFooter: 'Thank you for your business!',
+  lowStockThreshold: 5,
+  allowNegativeStock: false,
+  expenseCategories: ['Staff Wages', 'Cold Room/Utilities', 'Packaging', 'Processing Costs'],
+};

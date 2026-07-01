@@ -1,6 +1,6 @@
 {
-  "name": "",
-  "description": "",
+  "name": "Butchery Control",
+  "description": "Butchery POS, inventory, customers & Namibian financial reporting (NAMRA tax, VAT, AFS).",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

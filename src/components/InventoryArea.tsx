@@ -1,17 +1,75 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Plus, Filter, ArrowUpDown, Clock, Check, AlertTriangle, ChevronDown, PackagePlus, ArrowRightLeft, X } from 'lucide-react';
 import { Product, Category, Purchase, PurchaseItem } from '../types';
-import { DUMMY_PRODUCTS } from '../data';
+import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 
-export default function InventoryArea({ onBack }: { onBack: () => void }) {
+interface InventoryAreaProps {
+  onBack: () => void;
+  backLabel?: string;
+  /** When false (stock manager), existing items can only be restocked — not edited or removed. */
+  canEditProducts?: boolean;
+}
+
+export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard', canEditProducts = true }: InventoryAreaProps) {
+  const { products, setProducts, purchases, setPurchases, settings } = useData();
+  const { user } = useAuth();
+  const operator = user?.email ?? 'Local';
+  const businessName = settings.businessName || 'Butchery Control';
   const [activeTab, setActiveTab] = useState<'list' | 'purchases' | 'activity'>('list');
+  // Stock-manager restock flow (add-only quantity).
+  const [restockAmount, setRestockAmount] = useState<number>(0);
   const [activeCategory, setActiveCategory] = useState<Category | 'All'>('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'stock' | 'category'>('name');
-  const [products, setProducts] = useState<Product[]>(DUMMY_PRODUCTS);
 
   // Detail Modal State
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  const handleRestock = () => {
+    if (!selectedProduct || restockAmount <= 0) return;
+    setProducts(products.map(p => (p.id === selectedProduct.id ? { ...p, stock: p.stock + restockAmount } : p)));
+    setSelectedProduct(null);
+    setRestockAmount(0);
+  };
+
+  // Controlled edit form (admin) — seeded whenever a product opens for editing.
+  const [editData, setEditData] = useState<Partial<Product>>({});
+  const [editError, setEditError] = useState('');
+  useEffect(() => {
+    if (selectedProduct && canEditProducts) {
+      setEditData({ ...selectedProduct });
+      setEditError('');
+    }
+  }, [selectedProduct, canEditProducts]);
+
+  const handleSaveEdit = () => {
+    if (!selectedProduct) return;
+    const name = (editData.name ?? '').trim();
+    if (!name) {
+      setEditError('Product name cannot be empty.');
+      return;
+    }
+    if (products.some(p => p.id !== selectedProduct.id && p.name.toLowerCase() === name.toLowerCase())) {
+      setEditError('Another item already uses this name.');
+      return;
+    }
+    setProducts(products.map(p =>
+      p.id === selectedProduct.id
+        ? {
+            ...p,
+            name,
+            category: (editData.category as Category) ?? p.category,
+            costPrice: Number(editData.costPrice) || 0,
+            price: Number(editData.price) || 0,
+            unit: (editData.unit as 'kg' | 'u') ?? p.unit,
+            stock: Number(editData.stock) || 0,
+            lowStockThreshold: Number(editData.lowStockThreshold) || 0,
+          }
+        : p,
+    ));
+    setSelectedProduct(null);
+  };
 
   // Add New Item State
   const [isAddingItem, setIsAddingItem] = useState(false);
@@ -28,7 +86,6 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
   const [newItemWarning, setNewItemWarning] = useState('');
 
   // Purchases State
-  const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [isAddingPurchase, setIsAddingPurchase] = useState(false);
   const [purchaseTypeFilter, setPurchaseTypeFilter] = useState<'All' | Purchase['type']>('All');
   
@@ -132,7 +189,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
       items: newPurchaseData.items || [],
       totalCost: calculatedTotal,
       notes: newPurchaseData.notes,
-      operator: 'ADMIN' // hardcoded for now
+      operator,
     };
 
     setPurchases([newPurchase, ...purchases]);
@@ -178,52 +235,52 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex flex-col h-screen w-full bg-[#0C0C0C] text-[#E4E3E0] font-sans overflow-hidden">
       {/* Header */}
-      <header className="flex justify-between items-center px-6 py-4 bg-[#151515] border-b border-[#262626] shrink-0">
+      <header className="flex flex-wrap gap-3 justify-between items-center px-4 sm:px-6 py-4 bg-[#151515] border-b border-[#262626] shrink-0">
         <div>
-           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">Agility Investments CC</div>
-           <h2 className="text-2xl font-bold tracking-tight">Inventory <span className="text-[#D42C2C]">Management</span></h2>
+           <div className="text-xs uppercase tracking-widest text-[#888] font-semibold mb-1">{businessName}</div>
+           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Inventory <span className="text-[#D42C2C]">Management</span></h2>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 sm:gap-6">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-[#10B981] shadow-[0_0_8px_#10B981]"></span>
             <span className="text-xs font-medium uppercase tracking-wider">Cloud Synced</span>
           </div>
           <button onClick={onBack} className="text-xs font-bold uppercase tracking-widest text-[#888] hover:text-white transition-colors cursor-pointer">
-            Back to Dashboard
+            {backLabel}
           </button>
         </div>
       </header>
 
       {/* Tabs */}
-      <div className="flex px-6 border-b border-[#262626] bg-[#111] shrink-0">
+      <div className="flex px-4 sm:px-6 border-b border-[#262626] bg-[#111] shrink-0 overflow-x-auto">
         <button 
           onClick={() => setActiveTab('list')}
-          className={`py-4 px-6 text-sm font-bold uppercase tracking-widest border-b-2 transition-colors cursor-pointer ${activeTab === 'list' ? 'border-[#D42C2C] text-[#D42C2C]' : 'border-transparent text-[#888] hover:text-[#E4E3E0]'}`}
+          className={`py-4 px-5 sm:px-6 text-xs sm:text-sm font-bold uppercase tracking-widest border-b-2 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${activeTab === 'list' ? 'border-[#D42C2C] text-[#D42C2C]' : 'border-transparent text-[#888] hover:text-[#E4E3E0]'}`}
         >
           Stock List
         </button>
         <button 
           onClick={() => setActiveTab('purchases')}
-          className={`py-4 px-6 text-sm font-bold uppercase tracking-widest border-b-2 transition-colors cursor-pointer ${activeTab === 'purchases' ? 'border-[#D42C2C] text-[#D42C2C]' : 'border-transparent text-[#888] hover:text-[#E4E3E0]'}`}
+          className={`py-4 px-5 sm:px-6 text-xs sm:text-sm font-bold uppercase tracking-widest border-b-2 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${activeTab === 'purchases' ? 'border-[#D42C2C] text-[#D42C2C]' : 'border-transparent text-[#888] hover:text-[#E4E3E0]'}`}
         >
           Purchases (Intake)
         </button>
         <button 
           onClick={() => setActiveTab('activity')}
-          className={`py-4 px-6 text-sm font-bold uppercase tracking-widest border-b-2 transition-colors cursor-pointer ${activeTab === 'activity' ? 'border-[#D42C2C] text-[#D42C2C]' : 'border-transparent text-[#888] hover:text-[#E4E3E0]'}`}
+          className={`py-4 px-5 sm:px-6 text-xs sm:text-sm font-bold uppercase tracking-widest border-b-2 transition-colors cursor-pointer whitespace-nowrap shrink-0 ${activeTab === 'activity' ? 'border-[#D42C2C] text-[#D42C2C]' : 'border-transparent text-[#888] hover:text-[#E4E3E0]'}`}
         >
           Activity Log
         </button>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 overflow-hidden flex flex-col p-6">
-        
+      <div className="flex-1 overflow-hidden flex flex-col p-4 sm:p-6">
+
         {activeTab === 'list' && (
           <>
             {/* Toolbar */}
-            <div className="flex justify-between items-center mb-6 shrink-0">
-               <div className="flex gap-4 flex-1 max-w-3xl">
+            <div className="flex flex-col lg:flex-row lg:justify-between lg:items-center gap-3 mb-6 shrink-0">
+               <div className="flex flex-col sm:flex-row gap-3 flex-1 lg:max-w-3xl">
                  <div className="flex-1 relative">
                     <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#555]" />
                     <input 
@@ -234,21 +291,21 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                       className="w-full bg-[#151515] border border-[#262626] rounded-xl py-2 pl-10 pr-4 text-sm focus:outline-none focus:border-[#555] transition-colors"
                     />
                  </div>
-                 <div className="flex gap-2 bg-[#151515] p-1 rounded-xl border border-[#262626]">
+                 <div className="flex gap-2 bg-[#151515] p-1 rounded-xl border border-[#262626] overflow-x-auto">
                    {['All', 'Cattle Cuts', 'Manufactured', 'Resale'].map(cat => (
-                     <button 
+                     <button
                         key={cat}
                         onClick={() => setActiveCategory(cat as any)}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors cursor-pointer ${activeCategory === cat ? 'bg-[#222] text-white' : 'text-[#888] hover:text-white'}`}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-colors cursor-pointer whitespace-nowrap shrink-0 ${activeCategory === cat ? 'bg-[#222] text-white' : 'text-[#888] hover:text-white'}`}
                      >
                        {cat}
                      </button>
                    ))}
                  </div>
-                 <select 
+                 <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as any)}
-                    className="bg-[#151515] border border-[#262626] rounded-xl px-4 py-2 text-sm text-[#888] font-bold uppercase tracking-widest focus:outline-none cursor-pointer"
+                    className="bg-[#151515] border border-[#262626] rounded-xl px-4 py-2 text-sm text-[#888] font-bold uppercase tracking-widest focus:outline-none cursor-pointer shrink-0"
                   >
                     <option value="name">Sort: Name</option>
                     <option value="stock">Sort: Stock Level</option>
@@ -256,7 +313,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                   </select>
                </div>
                
-               <button onClick={handleAddNewItemClick} className="bg-[#D42C2C] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-[#B91C1C] transition-colors cursor-pointer">
+               <button onClick={handleAddNewItemClick} className="bg-[#D42C2C] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#B91C1C] transition-colors cursor-pointer w-full lg:w-auto shrink-0">
                  <Plus className="w-4 h-4" />
                  Add New Item
                </button>
@@ -385,8 +442,53 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
 
       </div>
 
+      {/* Restock-only Modal (stock manager) */}
+      {selectedProduct && !canEditProducts && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-md overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-[#262626] flex justify-between items-start bg-[#111]">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-[#888] mb-1">Restock Item</div>
+                <div className="text-2xl font-bold">{selectedProduct.name}</div>
+              </div>
+              <button onClick={() => { setSelectedProduct(null); setRestockAmount(0); }} className="text-[#555] hover:text-white cursor-pointer p-2 bg-[#222] rounded-full">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              <div className="bg-[#111] p-4 rounded-xl border border-[#262626] flex justify-between items-center">
+                <span className="text-xs font-bold uppercase tracking-widest text-[#888]">Current Stock</span>
+                <span className="text-xl font-mono font-bold">{selectedProduct.stock} {selectedProduct.unit}</span>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Add Quantity ({selectedProduct.unit})</label>
+                <input
+                  type="number"
+                  value={restockAmount || ''}
+                  onChange={(e) => setRestockAmount(Number(e.target.value))}
+                  placeholder="0"
+                  className="w-full bg-[#222] border border-[#333] rounded-xl py-4 px-4 text-xl font-mono focus:outline-none focus:border-[#10B981]"
+                />
+                {restockAmount > 0 && (
+                  <p className="text-xs text-[#10B981] mt-2">New stock: {(selectedProduct.stock + restockAmount)} {selectedProduct.unit}</p>
+                )}
+              </div>
+              <p className="text-xs text-[#555] italic">You can add stock and create new items. Editing prices or removing items requires an admin.</p>
+            </div>
+            <div className="p-6 border-t border-[#262626] flex justify-end gap-4 bg-[#111]">
+              <button onClick={() => { setSelectedProduct(null); setRestockAmount(0); }} className="px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest text-[#888] hover:text-white transition-colors cursor-pointer">
+                Cancel
+              </button>
+              <button onClick={handleRestock} disabled={restockAmount <= 0} className="bg-[#10B981] text-white px-8 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#059669] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                Add Stock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Item Detail / Edit Modal */}
-      {selectedProduct && (
+      {selectedProduct && canEditProducts && editData.id === selectedProduct.id && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
            <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
               <div className="p-6 border-b border-[#262626] flex justify-between items-start bg-[#111] shrink-0">
@@ -401,34 +503,41 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
               </div>
               
               <div className="p-6 overflow-y-auto flex-1 space-y-6">
-                
-                <div className="grid grid-cols-2 gap-6">
+
+                {editError && (
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-xl text-sm font-semibold flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" />
+                    {editError}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Item Name</label>
-                    <input type="text" defaultValue={selectedProduct.name} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" />
+                    <input type="text" value={editData.name ?? ''} onChange={e => setEditData({ ...editData, name: e.target.value })} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Category</label>
-                    <select defaultValue={selectedProduct.category} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none">
-                      <option>Cattle Cuts</option>
-                      <option>Manufactured</option>
-                      <option>Resale</option>
+                    <select value={editData.category} onChange={e => setEditData({ ...editData, category: e.target.value as Category })} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none">
+                      <option value="Cattle Cuts">Cattle Cuts</option>
+                      <option value="Manufactured">Manufactured</option>
+                      <option value="Resale">Resale</option>
                     </select>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Cost Price (N$)</label>
-                    <input type="number" defaultValue={selectedProduct.costPrice} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]" />
+                    <input type="number" value={editData.costPrice ?? 0} onChange={e => setEditData({ ...editData, costPrice: Number(e.target.value) })} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Selling Price (N$)</label>
-                    <input type="number" defaultValue={selectedProduct.price} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]" />
+                    <input type="number" value={editData.price ?? 0} onChange={e => setEditData({ ...editData, price: Number(e.target.value) })} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Unit</label>
-                    <select defaultValue={selectedProduct.unit} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none">
+                    <select value={editData.unit} onChange={e => setEditData({ ...editData, unit: e.target.value as 'kg' | 'u' })} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none">
                       <option value="kg">kg</option>
                       <option value="u">Each (u)</option>
                     </select>
@@ -440,16 +549,16 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                      <h4 className="text-sm font-bold uppercase tracking-widest">Manual Stock Adjustment</h4>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-6 bg-[#111] p-5 rounded-2xl border border-[#262626]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-[#111] p-5 rounded-2xl border border-[#262626]">
                     <div>
                       <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Current Quantity</label>
                       <div className="flex items-center gap-2">
-                        <input type="number" defaultValue={selectedProduct.stock} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-lg font-mono focus:outline-none focus:border-[#555] text-white" />
+                        <input type="number" value={editData.stock ?? 0} onChange={e => setEditData({ ...editData, stock: Number(e.target.value) })} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-lg font-mono focus:outline-none focus:border-[#555] text-white" />
                         <span className="text-[#888] font-mono">{selectedProduct.unit}</span>
                       </div>
                     </div>
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Adjustment Reason (Required)</label>
+                      <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Adjustment Reason (Optional)</label>
                       <select className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none">
                         <option value="">Select a reason...</option>
                         <option value="process">Processed from cattle</option>
@@ -461,10 +570,10 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Low Stock Threshold</label>
-                    <input type="number" defaultValue={selectedProduct.lowStockThreshold} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]" />
+                    <input type="number" value={editData.lowStockThreshold ?? 0} onChange={e => setEditData({ ...editData, lowStockThreshold: Number(e.target.value) })} className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Notes</label>
@@ -478,7 +587,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                  <button onClick={() => setSelectedProduct(null)} className="px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest text-[#888] hover:text-white transition-colors cursor-pointer">
                    Cancel
                  </button>
-                 <button onClick={() => setSelectedProduct(null)} className="bg-[#10B981] text-white px-8 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#059669] transition-colors cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                 <button onClick={handleSaveEdit} className="bg-[#10B981] text-white px-8 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#059669] transition-colors cursor-pointer shadow-[0_0_15px_rgba(16,185,129,0.3)]">
                    Save Changes
                  </button>
               </div>
@@ -516,7 +625,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Item Name *</label>
                     <input 
@@ -540,7 +649,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Cost Price (N$) *</label>
                     <input 
@@ -572,7 +681,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-6 bg-[#111] p-5 rounded-2xl border border-[#262626]">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-[#111] p-5 rounded-2xl border border-[#262626]">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Starting Stock Qty *</label>
                     <input 
@@ -647,7 +756,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                   </div>
                 )}
                 
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Purchase Type *</label>
                     <select 
@@ -681,7 +790,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                 </div>
 
                 {newPurchaseData.type === 'Live Cattle' ? (
-                  <div className="grid grid-cols-2 gap-6 bg-[#111] p-5 rounded-2xl border border-[#262626]">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 bg-[#111] p-5 rounded-2xl border border-[#262626]">
                     <div>
                       <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Total Cost (N$) *</label>
                       <input 
@@ -712,7 +821,7 @@ export default function InventoryArea({ onBack }: { onBack: () => void }) {
                     </div>
                     
                     {newPurchaseData.items?.map((item, index) => (
-                      <div key={index} className="flex gap-4 items-end bg-[#151515] p-4 rounded-xl border border-[#262626]">
+                      <div key={index} className="flex flex-wrap gap-4 items-end bg-[#151515] p-4 rounded-xl border border-[#262626]">
                         {newPurchaseData.type === 'Resale' ? (
                           <div className="flex-1">
                             <label className="block text-[10px] uppercase tracking-widest text-[#555] mb-1">Product</label>
