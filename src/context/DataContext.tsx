@@ -28,6 +28,8 @@ interface DataContextValue {
   setActivationUsedKeys: Dispatch<SetStateAction<string[]>>;
   /** True once the initial company snapshot has loaded (so the activation gate doesn't flash). */
   hydrated: boolean;
+  /** Wipe all transactional data (products, sales, purchases, customers) — keeps settings & license. */
+  resetData: () => void;
   recordSale: (sale: Sale) => void;
   syncStatus: SyncStatus;
   lastSyncAt: Date | null;
@@ -164,9 +166,16 @@ export function DataProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (isEmptyRemote(data?.data)) {
-        // Fresh company → seed with current local snapshot.
+        // Fresh company → start CLEAN. Never seed a new tenant from this browser's local cache
+        // (which may hold another session's data), otherwise a new account inherits stray data.
+        const empty: PersistShape = {
+          products: [], sales: [], purchases: [], customers: [],
+          finance: DEFAULT_FINANCE_CONFIG, settings: DEFAULT_BUSINESS_SETTINGS,
+          activation: null, activationUsedKeys: [],
+        };
+        applySnapshot(empty);
         ready.current = true;
-        await pushSnapshot();
+        await pushData(empty);
       } else {
         applySnapshot(reviveDates(data!.data) as Partial<PersistShape>);
         ready.current = true;
@@ -200,12 +209,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const snapshot = (): PersistShape => ({ products, sales, purchases, customers, finance, settings, activation, activationUsedKeys });
 
-  const pushSnapshot = async () => {
+  const pushData = async (data: PersistShape) => {
     if (!supabase || !companyId) return;
     setSyncStatus('saving');
     const { error } = await supabase
       .from('business_state')
-      .update({ data: snapshot(), updated_at: new Date().toISOString(), updated_by: user?.id })
+      .update({ data, updated_at: new Date().toISOString(), updated_by: user?.id })
       .eq('company_id', companyId);
     if (error) {
       setSyncStatus('error');
@@ -214,6 +223,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setLastSyncAt(new Date());
     }
   };
+
+  const pushSnapshot = async () => pushData(snapshot());
 
   // ---- Persist on every change: localStorage cache + debounced Supabase push ----
   useEffect(() => {
@@ -235,6 +246,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (configured && !companyId) setSyncStatus('local');
   }, [configured, companyId]);
+
+  const resetData = () => {
+    setProducts([]);
+    setSales([]);
+    setPurchases([]);
+    setCustomers([]);
+  };
 
   const recordSale = (sale: Sale) => {
     setSales((prev) => [sale, ...prev]);
@@ -262,7 +280,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider
-      value={{ products, setProducts, sales, setSales, purchases, setPurchases, customers, setCustomers, finance, setFinance, settings, setSettings, activation, setActivation, activationUsedKeys, setActivationUsedKeys, hydrated, recordSale, syncStatus, lastSyncAt }}
+      value={{ products, setProducts, sales, setSales, purchases, setPurchases, customers, setCustomers, finance, setFinance, settings, setSettings, activation, setActivation, activationUsedKeys, setActivationUsedKeys, hydrated, resetData, recordSale, syncStatus, lastSyncAt }}
     >
       {children}
     </DataContext.Provider>

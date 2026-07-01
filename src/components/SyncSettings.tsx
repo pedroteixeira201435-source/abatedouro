@@ -1,4 +1,4 @@
-import { Check, RefreshCw, Download, LogOut, AlertTriangle, ShieldCheck, Loader2 } from 'lucide-react';
+import { Check, RefreshCw, Download, LogOut, AlertTriangle, ShieldCheck, Loader2, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useData } from '../context/DataContext';
 
@@ -12,7 +12,13 @@ const STATUS_LABEL: Record<string, { text: string; color: string }> = {
 
 export default function SyncSettings() {
   const { configured, session, user, role, profile, signOut } = useAuth();
-  const { syncStatus, lastSyncAt, products, sales, purchases, customers, finance } = useData();
+  const { syncStatus, lastSyncAt, products, sales, purchases, customers, finance, resetData } = useData();
+
+  const clearAll = () => {
+    if (window.confirm('Clear ALL products, sales, purchases and customers for this business? This cannot be undone. Your settings and license are kept.')) {
+      resetData();
+    }
+  };
 
   const downloadBackup = () => {
     const blob = new Blob([JSON.stringify({ products, sales, purchases, customers, finance }, null, 2)], { type: 'application/json' });
@@ -69,11 +75,24 @@ export default function SyncSettings() {
           {lastSyncAt && <div className="text-xs text-[#555] mt-1">Last sync: {lastSyncAt.toLocaleTimeString()}</div>}
         </div>
 
-        <div className="pt-4 border-t border-[#262626]">
+        <div className="pt-4 border-t border-[#262626] flex flex-wrap gap-3">
           <button onClick={downloadBackup} className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer flex items-center gap-2">
             <Download className="w-4 h-4" /> Download Data Backup (JSON)
           </button>
         </div>
+      </div>
+
+      {/* Danger zone — clean a business that was seeded with stray/demo data */}
+      <div className="bg-[#111] border border-[#D42C2C]/30 p-6 rounded-2xl">
+        <div className="text-xs font-bold uppercase tracking-widest text-[#D42C2C] mb-1 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" /> Danger Zone
+        </div>
+        <p className="text-sm text-[#888] mb-4">
+          Start clean: permanently delete every product, sale, purchase and customer for this business. Settings and license are kept. Use this if the account came with sample data.
+        </p>
+        <button onClick={clearAll} className="bg-[#D42C2C]/10 text-[#D42C2C] border border-[#D42C2C]/30 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#D42C2C] hover:text-white transition-colors cursor-pointer flex items-center gap-2">
+          <Trash2 className="w-4 h-4" /> Clear All Business Data
+        </button>
       </div>
     </div>
   );
