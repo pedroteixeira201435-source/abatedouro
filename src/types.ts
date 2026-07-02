@@ -34,6 +34,8 @@ export interface Sale {
   items: SaleItem[];
   total: number;
   costTotal: number;
+  /** Extra charged on a credit sale (over the cash price) per the credit surcharge policy. Included in `total`. */
+  surcharge?: number;
   syncStatus: 'Synced' | 'Pending Sync';
   status: 'Completed' | 'Voided' | 'Refunded';
   voidReason?: string;
@@ -107,10 +109,14 @@ export interface BusinessSettings {
   businessName: string;
   businessAddress: string;
   businessPhone: string;
+  /** Company logo as a base64 data URL (shown on receipts/statements). Empty = none. */
+  logo?: string;
   // Credit policy
   creditLimitBehavior: 'Warn' | 'Block';
   billingCycle: string;
   interest: CreditInterest;
+  /** Extra charged on credit sales over the cash price (the cost of buying on credit). value 0 = disabled. */
+  creditSurcharge: CreditInterest;
   // Receipt / invoice
   receiptPrefix: string;
   receiptHeader: string;
@@ -125,9 +131,11 @@ export const DEFAULT_BUSINESS_SETTINGS: BusinessSettings = {
   businessName: '',
   businessAddress: '',
   businessPhone: '',
+  logo: '',
   creditLimitBehavior: 'Warn',
   billingCycle: 'Last day of the month',
   interest: { mode: 'percent', value: 0 },
+  creditSurcharge: { mode: 'percent', value: 0 },
   receiptPrefix: 'INV-',
   receiptHeader: '',
   receiptFooter: 'Thank you for your business!',

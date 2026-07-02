@@ -2,11 +2,14 @@ import React, { useState, useMemo } from 'react';
 import { Search, ChevronDown, Check, AlertTriangle, ArrowLeft, Download, RefreshCw, X, Receipt, Trash2 } from 'lucide-react';
 import { Sale } from '../types';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 import InvoiceActions from './InvoiceActions';
 import { formatSaleText, buildSalePdf } from '../lib/invoice';
 
 export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
   const { sales, setSales, products, setProducts, customers, setCustomers, settings } = useData();
+  const { canEdit } = useAuth();
+  const readOnly = !canEdit; // "Till + Viewing" role: view sales but cannot void/refund.
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
@@ -405,8 +408,8 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
                      filename={`receipt-${selectedSale.id}`}
                    />
                  </div>
-                 {selectedSale.status === 'Completed' && (
-                   <button 
+                 {selectedSale.status === 'Completed' && !readOnly && (
+                   <button
                      onClick={() => setVoidingSale(selectedSale)}
                      className="bg-red-500/10 text-red-500 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-colors cursor-pointer flex items-center gap-2 border border-red-500/20"
                    >

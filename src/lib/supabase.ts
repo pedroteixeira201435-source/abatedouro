@@ -10,4 +10,4 @@ export const supabase: SupabaseClient | null = supabaseConfigured
   ? createClient(url as string, anonKey as string)
   : null;
 
-export type Role = 'admin' | 'till' | 'stock_manager';
+export type Role = 'admin' | 'till' | 'stock_manager' | 'till_viewer';

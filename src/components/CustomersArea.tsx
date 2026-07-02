@@ -9,7 +9,8 @@ import InvoiceActions from './InvoiceActions';
 
 export default function CustomersArea({ onBack }: { onBack: () => void }) {
   const { customers, setCustomers, sales, settings } = useData();
-  const { user } = useAuth();
+  const { user, canEdit } = useAuth();
+  const readOnly = !canEdit; // "Till + Viewing" role: view accounts but change nothing.
   const operator = user?.email ?? 'Local';
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'balance' | 'lastPurchase'>('name');
@@ -213,23 +214,25 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
             </select>
           </div>
           
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <button
-              onClick={applyMonthlyInterest}
-              className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#333] transition-colors cursor-pointer"
-              title="Charge this month's interest to all accounts with a balance"
-            >
-              <Percent className="w-4 h-4" />
-              Apply Monthly Interest
-            </button>
-            <button
-              onClick={() => setIsAddingCustomer(true)}
-              className="bg-[#3B82F6] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#2563EB] transition-colors cursor-pointer"
-            >
-              <UserPlus className="w-4 h-4" />
-              Add New Customer
-            </button>
-          </div>
+          {!readOnly && (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <button
+                onClick={applyMonthlyInterest}
+                className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#333] transition-colors cursor-pointer"
+                title="Charge this month's interest to all accounts with a balance"
+              >
+                <Percent className="w-4 h-4" />
+                Apply Monthly Interest
+              </button>
+              <button
+                onClick={() => setIsAddingCustomer(true)}
+                className="bg-[#3B82F6] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#2563EB] transition-colors cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                Add New Customer
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Data Table */}
@@ -418,17 +421,20 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                         </div>
                       )}
                       
-                      <button
-                        onClick={() => setIsRecordingPayment(true)}
-                        disabled={selectedCustomer.balance === 0}
-                        className="mt-6 w-full bg-[#10B981] text-white px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#059669] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                        <Wallet className="w-4 h-4" />
-                        Record Payment
-                      </button>
+                      {!readOnly && (
+                        <button
+                          onClick={() => setIsRecordingPayment(true)}
+                          disabled={selectedCustomer.balance === 0}
+                          className="mt-6 w-full bg-[#10B981] text-white px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#059669] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        >
+                          <Wallet className="w-4 h-4" />
+                          Record Payment
+                        </button>
+                      )}
                     </div>
 
                     {/* Interest policy for this account */}
+                    {!readOnly && (
                     <div className="bg-[#151515] p-4 rounded-2xl border border-[#262626]">
                       <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-[#888] mb-3">
                         <Percent className="w-3.5 h-3.5" /> Monthly Interest
@@ -457,6 +463,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                         )}
                       </div>
                     </div>
+                    )}
 
                     {/* Send account statement */}
                     <div className="bg-[#151515] p-4 rounded-2xl border border-[#262626]">
@@ -496,7 +503,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                     )}
                   </div>
                   
-                  {selectedCustomer.balance === 0 && (
+                  {selectedCustomer.balance === 0 && !readOnly && (
                     <button onClick={handleDeleteCustomer} className="mt-8 text-xs font-bold uppercase tracking-widest text-red-500 hover:text-red-400 flex items-center gap-2 justify-center py-2">
                       <Trash2 className="w-4 h-4" />
                       Deactivate Account

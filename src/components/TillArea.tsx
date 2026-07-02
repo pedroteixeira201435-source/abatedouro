@@ -5,6 +5,7 @@ import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import InvoiceActions from './InvoiceActions';
 import { formatSaleText, buildSalePdf } from '../lib/invoice';
+import { creditSurcharge, interestLabel } from '../lib/credit';
 
 export default function TillArea({ onLogout }: { onLogout: () => void }) {
   const { products, customers, settings, recordSale } = useData();
@@ -36,6 +37,9 @@ export default function TillArea({ onLogout }: { onLogout: () => void }) {
   }, [activeCategory, searchQuery]);
 
   const cartTotal = cart.reduce((sum, item) => sum + item.subtotal, 0);
+  // Extra charged when paying on credit instead of cash (Settings → Credit → Credit Surcharge).
+  const creditExtra = creditSurcharge(cartTotal, settings);
+  const creditGrandTotal = cartTotal + creditExtra;
 
   const handleKeypadSubmit = () => {
     if (!selectedProduct) return;
@@ -85,8 +89,8 @@ export default function TillArea({ onLogout }: { onLogout: () => void }) {
   };
 
   const processCreditSale = (customer: Customer) => {
-    // Enforce the credit-limit policy configured in Settings → Credit.
-    if (customer.creditLimit && customer.balance + cartTotal > customer.creditLimit && settings.creditLimitBehavior === 'Block') {
+    // Enforce the credit-limit policy configured in Settings → Credit (surcharge counts toward the limit).
+    if (customer.creditLimit && customer.balance + creditGrandTotal > customer.creditLimit && settings.creditLimitBehavior === 'Block') {
       alert(`Credit limit exceeded for ${customer.name}. Limit: N$ ${customer.creditLimit.toFixed(2)}. Sale blocked (see Settings → Credit).`);
       return;
     }
@@ -101,6 +105,7 @@ export default function TillArea({ onLogout }: { onLogout: () => void }) {
   };
 
   const generateReceipt = (paymentType: 'Cash' | 'Credit', customer?: Customer) => {
+    const surcharge = paymentType === 'Credit' ? creditExtra : 0;
     const newReceipt: Sale = {
       id: settings.receiptPrefix + Math.floor(Math.random() * 1000000).toString().padStart(6, '0'),
       date: new Date(),
@@ -111,7 +116,8 @@ export default function TillArea({ onLogout }: { onLogout: () => void }) {
         subtotal: item.subtotal,
         costSubtotal: item.product.costPrice * item.quantity,
       })),
-      total: cartTotal,
+      total: cartTotal + surcharge,
+      surcharge: surcharge > 0 ? surcharge : undefined,
       costTotal: cart.reduce((acc, item) => acc + (item.product.costPrice * item.quantity), 0),
       paymentType,
       customerId: customer?.id,
@@ -393,6 +399,9 @@ export default function TillArea({ onLogout }: { onLogout: () => void }) {
                 <X className="w-5 h-5" />
              </button>
              <div className="text-center mb-6">
+                {settings.logo && (
+                  <img src={settings.logo} alt="Logo" className="h-16 mx-auto mb-3 object-contain" />
+                )}
                 <h2 className="font-bold text-lg">{settings.businessName || 'Butchery Control'}</h2>
                 <div className="text-xs text-gray-500">Butchery Control</div>
                 <div className="text-xs text-gray-500 mt-2">Receipt #{receipt.id}</div>
@@ -414,6 +423,18 @@ export default function TillArea({ onLogout }: { onLogout: () => void }) {
                ))}
              </div>
              
+             {receipt.surcharge ? (
+               <>
+                 <div className="flex justify-between text-xs text-gray-600">
+                   <span>Subtotal</span>
+                   <span>N$ {(receipt.total - receipt.surcharge).toFixed(2)}</span>
+                 </div>
+                 <div className="flex justify-between text-xs text-gray-600 mb-2">
+                   <span>Credit surcharge</span>
+                   <span>+ N$ {receipt.surcharge.toFixed(2)}</span>
+                 </div>
+               </>
+             ) : null}
              <div className="flex justify-between font-bold text-lg mb-2">
                <span>TOTAL</span>
                <span>N$ {receipt.total.toFixed(2)}</span>
@@ -454,9 +475,17 @@ export default function TillArea({ onLogout }: { onLogout: () => void }) {
               {pendingSale.paymentType === 'Credit' && pendingSale.customer && (
                 <div className="text-sm font-semibold text-[#E4E3E0] mt-1">{pendingSale.customer.name}</div>
               )}
-              <div className="text-5xl font-mono tracking-tighter mt-4">N$ {cartTotal.toFixed(2)}</div>
+              {pendingSale.paymentType === 'Credit' && creditExtra > 0 && (
+                <div className="text-[11px] text-[#888] mt-3 space-y-0.5">
+                  <div>Subtotal: N$ {cartTotal.toFixed(2)}</div>
+                  <div className="text-yellow-500">Credit surcharge ({interestLabel(settings.creditSurcharge)}): + N$ {creditExtra.toFixed(2)}</div>
+                </div>
+              )}
+              <div className="text-5xl font-mono tracking-tighter mt-4">
+                N$ {(pendingSale.paymentType === 'Credit' ? creditGrandTotal : cartTotal).toFixed(2)}
+              </div>
               {pendingSale.paymentType === 'Credit' && pendingSale.customer?.creditLimit &&
-                pendingSale.customer.balance + cartTotal > pendingSale.customer.creditLimit && (
+                pendingSale.customer.balance + creditGrandTotal > pendingSale.customer.creditLimit && (
                   <div className="mt-3 text-[11px] font-bold uppercase tracking-widest text-red-500 flex items-center justify-center gap-1">
                     <AlertTriangle className="w-4 h-4" /> Over credit limit
                   </div>

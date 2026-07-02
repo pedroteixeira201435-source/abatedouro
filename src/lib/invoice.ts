@@ -4,6 +4,21 @@ import { Sale, Customer, BusinessSettings } from '../types';
 const money = (v: number) => `N$ ${v.toFixed(2)}`;
 const bizName = (s: BusinessSettings) => s.businessName || 'Butchery Control';
 
+/** Draw the company logo (if any) at the top and return the new y cursor. Never throws. */
+function drawLogo(doc: jsPDF, settings: BusinessSettings, left: number, y: number): number {
+  const logo = settings.logo;
+  if (!logo || !logo.startsWith('data:image')) return y;
+  try {
+    const fmt = logo.substring(11, logo.indexOf(';')).toUpperCase(); // e.g. PNG / JPEG
+    const w = 90;
+    const h = 45;
+    doc.addImage(logo, fmt, left, y - 12, w, h, undefined, 'FAST');
+    return y + h + 6;
+  } catch {
+    return y; // unsupported image — skip it rather than break the PDF
+  }
+}
+
 /** Normalise a local phone to WhatsApp's international digits (Namibia default: 0xx → 264xx). */
 export function waNumber(phone: string): string {
   let digits = (phone || '').replace(/\D/g, '');
@@ -23,6 +38,10 @@ export function formatSaleText(sale: Sale, settings: BusinessSettings): string {
     lines.push(`${i.product.name}  ${i.quantity}${i.product.unit} x ${i.product.price.toFixed(2)} = ${money(i.subtotal)}`);
   });
   lines.push('');
+  if (sale.surcharge) {
+    lines.push(`Subtotal: ${money(sale.total - sale.surcharge)}`);
+    lines.push(`Credit surcharge: ${money(sale.surcharge)}`);
+  }
   lines.push(`TOTAL: ${money(sale.total)}`);
   lines.push(`Payment: ${sale.paymentType}${sale.customerName ? ` (${sale.customerName})` : ''}`);
   if (settings.receiptFooter) {
@@ -37,6 +56,7 @@ export function buildSalePdf(sale: Sale, settings: BusinessSettings): jsPDF {
   const doc = new jsPDF({ unit: 'pt', format: 'a5' });
   const left = 40;
   let y = 48;
+  y = drawLogo(doc, settings, left, y);
   doc.setFontSize(16).setFont('helvetica', 'bold');
   doc.text(bizName(settings), left, y);
   y += 18;
@@ -58,6 +78,11 @@ export function buildSalePdf(sale: Sale, settings: BusinessSettings): jsPDF {
   });
   y += 4;
   doc.line(left, y, 380, y); y += 18;
+  if (sale.surcharge) {
+    doc.setFont('helvetica', 'normal').setFontSize(10);
+    doc.text('Subtotal', left, y); doc.text(money(sale.total - sale.surcharge), 300, y); y += 14;
+    doc.text('Credit surcharge', left, y); doc.text(money(sale.surcharge), 300, y); y += 16;
+  }
   doc.setFont('helvetica', 'bold').setFontSize(12);
   doc.text('TOTAL', left, y);
   doc.text(money(sale.total), 300, y);
@@ -90,6 +115,7 @@ export function buildStatementPdf(customer: Customer, sales: Sale[], settings: B
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const left = 48;
   let y = 56;
+  y = drawLogo(doc, settings, left, y);
   doc.setFontSize(18).setFont('helvetica', 'bold').text(bizName(settings), left, y);
   y += 22;
   doc.setFontSize(12).setFont('helvetica', 'normal').text('Account Statement', left, y);

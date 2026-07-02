@@ -1,18 +1,19 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import SyncSettings from './SyncSettings';
 import UserManagement from './UserManagement';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 import { BusinessSettings } from '../types';
 import { computeStatus } from '../lib/activation';
-import { 
-  Building2, 
-  Users, 
-  Cloud, 
-  Package, 
-  CreditCard, 
-  Receipt, 
-  Tag, 
-  Bell, 
+import {
+  Building2,
+  Users,
+  Cloud,
+  Package,
+  CreditCard,
+  Receipt,
+  Tag,
+  Bell,
   Info,
   ArrowLeft,
   Save,
@@ -21,7 +22,9 @@ import {
   RefreshCw,
   Download,
   AlertTriangle,
-  Check
+  Check,
+  Image as ImageIcon,
+  Eye
 } from 'lucide-react';
 
 type Tab = 'profile' | 'users' | 'sync' | 'inventory' | 'credit' | 'receipts' | 'expenses' | 'about';
@@ -29,18 +32,32 @@ type Tab = 'profile' | 'users' | 'sync' | 'inventory' | 'credit' | 'receipts' | 
 export default function SettingsArea({ onBack }: { onBack: () => void }) {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const { settings, setSettings, activation } = useData();
+  const { canEdit } = useAuth();
+  const readOnly = !canEdit; // "Till + Viewing" role: browse settings but change nothing.
 
   // All settings persist to the shared snapshot (localStorage + Supabase per company).
-  const update = (patch: Partial<BusinessSettings>) => setSettings((s) => ({ ...s, ...patch }));
+  const update = (patch: Partial<BusinessSettings>) => {
+    if (readOnly) return;
+    setSettings((s) => ({ ...s, ...patch }));
+  };
   const {
-    businessName, businessAddress, businessPhone,
+    businessName, businessAddress, businessPhone, logo,
     lowStockThreshold, allowNegativeStock,
-    creditLimitBehavior, billingCycle, interest,
+    creditLimitBehavior, billingCycle, interest, creditSurcharge,
     receiptHeader, receiptFooter, receiptPrefix,
     expenseCategories,
   } = settings;
 
   const [newExpenseCat, setNewExpenseCat] = useState('');
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleLogoFile = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 512 * 1024) { alert('Please choose an image under 512 KB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => update({ logo: String(reader.result) });
+    reader.readAsDataURL(file);
+  };
 
   const renderContent = () => {
     switch (activeTab) {
@@ -54,12 +71,50 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
             
             <div className="space-y-4">
               <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Company Logo</label>
+                <div className="flex items-center gap-4">
+                  <div className="h-20 w-20 rounded-xl bg-[#222] border border-[#333] flex items-center justify-center overflow-hidden shrink-0">
+                    {logo ? (
+                      <img src={logo} alt="Logo" className="h-full w-full object-contain" />
+                    ) : (
+                      <ImageIcon className="w-7 h-7 text-[#555]" />
+                    )}
+                  </div>
+                  {!readOnly && (
+                    <div className="flex flex-col gap-2">
+                      <input
+                        ref={logoInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={e => handleLogoFile(e.target.files?.[0])}
+                      />
+                      <button
+                        onClick={() => logoInputRef.current?.click()}
+                        className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer flex items-center gap-2"
+                      >
+                        <ImageIcon className="w-4 h-4" /> {logo ? 'Change Logo' : 'Upload Logo'}
+                      </button>
+                      {logo && (
+                        <button
+                          onClick={() => update({ logo: '' })}
+                          className="text-red-500 hover:text-red-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2 cursor-pointer"
+                        >
+                          <Trash2 className="w-4 h-4" /> Remove
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-[#555] mt-2">Shown on receipts and account statements. PNG/JPEG/WebP, under 512 KB.</p>
+              </div>
+              <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Business Name</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={businessName}
                   onChange={e => update({ businessName: e.target.value })}
-                  className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" 
+                  className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]"
                 />
               </div>
               <div>
@@ -230,9 +285,48 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
                 <p className="text-xs text-[#555]">Set to 0 to disable interest. Run interest each month from Customers → "Apply Monthly Interest".</p>
               </div>
 
-              <div className="pt-2 text-xs text-[#10B981] flex items-center gap-2">
-                <Check className="w-4 h-4" /> Changes save automatically.
+              {/* Credit surcharge — extra charged for buying on credit instead of cash */}
+              <div className="bg-[#111] border border-[#262626] p-5 rounded-2xl space-y-4">
+                <div>
+                  <div className="font-bold text-sm">Credit Surcharge (cost of buying on credit)</div>
+                  <div className="text-xs text-[#888] mt-1">Added on top of the cash price whenever a sale is paid on credit at the Till. Charge a fixed N$ amount or a percentage of the sale.</div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#888] mb-2">Surcharge Type</label>
+                    <select
+                      value={creditSurcharge.mode}
+                      onChange={e => update({ creditSurcharge: { ...creditSurcharge, mode: e.target.value as 'fixed' | 'percent' } })}
+                      className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none cursor-pointer"
+                    >
+                      <option value="percent">Percentage (%)</option>
+                      <option value="fixed">Fixed amount (N$)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-[#888] mb-2">
+                      {creditSurcharge.mode === 'percent' ? 'Rate (% of sale)' : 'Amount (N$ per sale)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={creditSurcharge.value}
+                      onChange={e => update({ creditSurcharge: { ...creditSurcharge, value: Number(e.target.value) } })}
+                      className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm font-mono focus:outline-none focus:border-[#555]"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-[#555]">
+                  Set to 0 to disable. {creditSurcharge.value > 0
+                    ? `Example: a N$ 100.00 cart becomes N$ ${(100 + (creditSurcharge.mode === 'percent' ? 100 * creditSurcharge.value / 100 : creditSurcharge.value)).toFixed(2)} on credit.`
+                    : 'Cash and credit prices are the same.'}
+                </p>
               </div>
+
+              {!readOnly && (
+                <div className="pt-2 text-xs text-[#10B981] flex items-center gap-2">
+                  <Check className="w-4 h-4" /> Changes save automatically.
+                </div>
+              )}
             </div>
           </div>
         );
@@ -419,6 +513,11 @@ export default function SettingsArea({ onBack }: { onBack: () => void }) {
       {/* Main Content */}
       <div className="flex-1 flex flex-col md:overflow-hidden">
         <div className="flex-1 md:overflow-y-auto p-4 sm:p-8">
+          {readOnly && (
+            <div className="max-w-2xl mb-6 bg-[#3B82F6]/10 border border-[#3B82F6]/20 text-[#3B82F6] p-3 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <Eye className="w-4 h-4 shrink-0" /> View only — your role can browse settings but cannot change them. Ask an admin to edit.
+            </div>
+          )}
           {renderContent()}
         </div>
       </div>

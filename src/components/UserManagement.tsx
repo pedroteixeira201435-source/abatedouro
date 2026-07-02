@@ -14,6 +14,7 @@ export default function UserManagement() {
   const [creating, setCreating] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [inviteRole, setInviteRole] = useState<Exclude<Role, 'admin'>>('till');
+  const [error, setError] = useState<string | null>(null);
 
   const isAdmin = role === 'admin' && configured;
 
@@ -32,7 +33,15 @@ export default function UserManagement() {
   const generate = async () => {
     if (!supabase) return;
     setCreating(true);
-    await supabase.rpc('create_invite', { invite_role: inviteRole });
+    setError(null);
+    const { error: rpcError } = await supabase.rpc('create_invite', { invite_role: inviteRole });
+    if (rpcError) {
+      // Surface the failure instead of silently doing nothing (the old bug). A PGRST203 /
+      // "function not found" here means the DB migration (0004) hasn't been applied yet.
+      setError(rpcError.message || 'Could not generate an invite code. Please try again.');
+      setCreating(false);
+      return;
+    }
     await load();
     setCreating(false);
   };
@@ -86,6 +95,7 @@ export default function UserManagement() {
               className="bg-[#222] border border-[#333] rounded-xl py-2 px-3 text-xs font-bold uppercase tracking-widest focus:outline-none focus:border-[#555] cursor-pointer"
             >
               <option value="till">Till</option>
+              <option value="till_viewer">Till + Viewing</option>
               <option value="stock_manager">Stock Manager</option>
             </select>
             <button onClick={generate} disabled={creating} className="bg-[#3B82F6] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#2563EB] transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50">
@@ -93,7 +103,12 @@ export default function UserManagement() {
             </button>
           </div>
         </div>
-        <p className="text-xs text-[#555] mb-4">Pick the role, click <b>Generate Invite Code</b>, then send the code to your employee. They open the app → <b>Create Account</b> → <b>Join with Code</b>. <b>Till</b> = Open Till only; <b>Stock Manager</b> = Inventory only (add + restock).</p>
+        <p className="text-xs text-[#555] mb-4">Pick the role, click <b>Generate Invite Code</b>, then send the code to your employee. They open the app → <b>Create Account</b> → <b>Join with Code</b>. <b>Till</b> = Open Till only; <b>Till + Viewing</b> = sell + view every area (no editing); <b>Stock Manager</b> = Inventory only (add + restock).</p>
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-3 rounded-xl text-xs font-semibold flex items-center gap-2 mb-4">
+            <AlertTriangle className="w-4 h-4 shrink-0" /> {error}
+          </div>
+        )}
         <div className="space-y-2">
           {invites.map((inv) => (
             <div key={inv.code} className="flex justify-between items-center bg-[#151515] border border-[#262626] rounded-xl px-4 py-3">
@@ -138,6 +153,7 @@ export default function UserManagement() {
                       className="bg-[#222] border border-[#333] rounded-lg py-1.5 px-3 text-xs font-bold uppercase tracking-widest focus:outline-none focus:border-[#555] disabled:opacity-50 cursor-pointer"
                     >
                       <option value="till">Till (Open Till only)</option>
+                      <option value="till_viewer">Till + Viewing (sell + view all)</option>
                       <option value="stock_manager">Stock Manager (Inventory only)</option>
                       <option value="admin">Admin (full access)</option>
                     </select>

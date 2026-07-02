@@ -15,6 +15,8 @@ interface AuthContextValue {
   user: User | null;
   profile: Profile | null;
   role: Role | null;
+  /** False for the read-only "TILL + Viewing" role — they may sell but not edit any data. */
+  canEdit: boolean;
   companyId: string | null;
   /** Signed in but not yet attached to a company → must create or join one. */
   needsOnboarding: boolean;
@@ -91,6 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Local-only fallback (no Supabase configured): act as admin so dev keeps working.
   const role: Role | null = supabaseConfigured ? profile?.role ?? null : 'admin';
+  // TILL + Viewing (till_viewer) can sell and browse every area, but must not mutate any data.
+  const canEdit = role !== 'till_viewer';
   const needsOnboarding = supabaseConfigured && !!session && !profile;
 
   return (
@@ -102,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         profile,
         role,
+        canEdit,
         companyId: profile?.companyId ?? null,
         needsOnboarding,
         signIn,

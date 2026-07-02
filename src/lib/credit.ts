@@ -21,3 +21,14 @@ export function currentMonthKey(d: Date = new Date()): string {
 export function interestLabel(interest: CreditInterest): string {
   return interest.mode === 'percent' ? `${interest.value}%` : `N$ ${interest.value.toFixed(2)}`;
 }
+
+/**
+ * Extra charged when a sale is paid on credit instead of cash (the cost of buying on credit).
+ * `subtotal` is the cash price of the cart. Returns the surcharge amount (>= 0), rounded to 2dp.
+ */
+export function creditSurcharge(subtotal: number, settings: BusinessSettings): number {
+  const s = settings.creditSurcharge;
+  if (!s || s.value <= 0 || subtotal <= 0) return 0;
+  const raw = s.mode === 'fixed' ? s.value : subtotal * (s.value / 100);
+  return Math.round(raw * 100) / 100;
+}

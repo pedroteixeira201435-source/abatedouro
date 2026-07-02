@@ -13,7 +13,8 @@ interface InventoryAreaProps {
 
 export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard', canEditProducts = true }: InventoryAreaProps) {
   const { products, setProducts, purchases, setPurchases, settings } = useData();
-  const { user } = useAuth();
+  const { user, canEdit } = useAuth();
+  const readOnly = !canEdit; // "Till + Viewing" role: view stock but change nothing.
   const operator = user?.email ?? 'Local';
   const businessName = settings.businessName || 'Butchery Control';
   const [activeTab, setActiveTab] = useState<'list' | 'purchases' | 'activity'>('list');
@@ -313,10 +314,12 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
                   </select>
                </div>
                
-               <button onClick={handleAddNewItemClick} className="bg-[#D42C2C] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#B91C1C] transition-colors cursor-pointer w-full lg:w-auto shrink-0">
-                 <Plus className="w-4 h-4" />
-                 Add New Item
-               </button>
+               {!readOnly && (
+                 <button onClick={handleAddNewItemClick} className="bg-[#D42C2C] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-[#B91C1C] transition-colors cursor-pointer w-full lg:w-auto shrink-0">
+                   <Plus className="w-4 h-4" />
+                   Add New Item
+                 </button>
+               )}
             </div>
 
             {/* Data Table */}
@@ -339,10 +342,10 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
                     const marginPercent = ((margin / product.costPrice) * 100).toFixed(1);
                     
                     return (
-                      <tr 
-                        key={product.id} 
-                        onClick={() => setSelectedProduct(product)}
-                        className="border-b border-[#262626] hover:bg-[#222] transition-colors cursor-pointer group"
+                      <tr
+                        key={product.id}
+                        onClick={readOnly ? undefined : () => setSelectedProduct(product)}
+                        className={`border-b border-[#262626] hover:bg-[#222] transition-colors group ${readOnly ? '' : 'cursor-pointer'}`}
                       >
                         <td className="py-4 px-6 text-sm font-semibold flex items-center gap-3">
                           {isLowStock && <AlertTriangle className="w-4 h-4 text-yellow-500" />}
@@ -381,10 +384,12 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
                   <option value="Resale">Resale</option>
                 </select>
               </div>
-              <button onClick={handleStartPurchase} className="bg-[#D42C2C] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-[#B91C1C] transition-colors cursor-pointer">
-                <Plus className="w-4 h-4" />
-                Order New Purchase
-              </button>
+              {!readOnly && (
+                <button onClick={handleStartPurchase} className="bg-[#D42C2C] text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:bg-[#B91C1C] transition-colors cursor-pointer">
+                  <Plus className="w-4 h-4" />
+                  Order New Purchase
+                </button>
+              )}
             </div>
 
             {filteredPurchases.length === 0 ? (
@@ -395,10 +400,12 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
                   <p className="text-sm text-[#888] max-w-md mx-auto mb-6">
                     Record live cattle purchases, manufactured product ingredients, and resale items here.
                   </p>
-                  <button onClick={handleStartPurchase} className="bg-[#222] border border-[#333] text-white px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer inline-flex items-center gap-2">
-                    <Plus className="w-4 h-4" />
-                    Log New Purchase
-                  </button>
+                  {!readOnly && (
+                    <button onClick={handleStartPurchase} className="bg-[#222] border border-[#333] text-white px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer inline-flex items-center gap-2">
+                      <Plus className="w-4 h-4" />
+                      Log New Purchase
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (

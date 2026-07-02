@@ -106,6 +106,7 @@ function mergeSettings(parsed?: Partial<BusinessSettings>): BusinessSettings {
     ...DEFAULT_BUSINESS_SETTINGS,
     ...parsed,
     interest: { ...DEFAULT_BUSINESS_SETTINGS.interest, ...parsed?.interest },
+    creditSurcharge: { ...DEFAULT_BUSINESS_SETTINGS.creditSurcharge, ...parsed?.creditSurcharge },
     expenseCategories: parsed?.expenseCategories ?? DEFAULT_BUSINESS_SETTINGS.expenseCategories,
   };
 }
