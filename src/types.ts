@@ -39,6 +39,10 @@ export interface Sale {
   syncStatus: 'Synced' | 'Pending Sync';
   status: 'Completed' | 'Voided' | 'Refunded';
   voidReason?: string;
+  /** Audit trail for admin corrections (only admins may edit a recorded sale). */
+  editedAt?: Date;
+  editedBy?: string;
+  editReason?: string;
 }
 
 export interface Payment {

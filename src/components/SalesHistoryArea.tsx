@@ -1,15 +1,21 @@
 import React, { useState, useMemo } from 'react';
-import { Search, ChevronDown, Check, AlertTriangle, ArrowLeft, Download, RefreshCw, X, Receipt, Trash2 } from 'lucide-react';
-import { Sale } from '../types';
+import { Search, ChevronDown, Check, AlertTriangle, ArrowLeft, Download, RefreshCw, X, Receipt, Trash2, Pencil, Plus } from 'lucide-react';
+import { Sale, Product } from '../types';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import InvoiceActions from './InvoiceActions';
 import { formatSaleText, buildSalePdf } from '../lib/invoice';
 
+/** A line being edited: keeps the product snapshot plus an editable unit price + quantity. */
+interface EditLine { product: Product; quantity: number; price: number }
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
 export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
   const { sales, setSales, products, setProducts, customers, setCustomers, settings } = useData();
-  const { canEdit } = useAuth();
+  const { role, canEdit, user } = useAuth();
   const readOnly = !canEdit; // "Till + Viewing" role: view sales but cannot void/refund.
+  const isAdmin = role === 'admin'; // Only admins may correct a recorded sale.
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
 
@@ -22,6 +28,15 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
   // Void/Refund state
   const [voidingSale, setVoidingSale] = useState<Sale | null>(null);
   const [voidReason, setVoidReason] = useState('');
+
+  // Admin edit state — correct a recorded sale (line items, prices, payment, customer).
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  const [editLines, setEditLines] = useState<EditLine[]>([]);
+  const [editPaymentType, setEditPaymentType] = useState<'Cash' | 'Credit'>('Cash');
+  const [editCustomerId, setEditCustomerId] = useState<string>('');
+  const [editReason, setEditReason] = useState('');
+  const [addProductId, setAddProductId] = useState('');
+  const [editError, setEditError] = useState('');
 
   const filteredSales = useMemo(() => {
     const now = new Date();
@@ -107,6 +122,77 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
 
     setVoidingSale(null);
     setVoidReason('');
+  };
+
+  const openEditor = (sale: Sale) => {
+    setEditingSale(sale);
+    setEditLines(sale.items.map((i) => ({ product: i.product, quantity: i.quantity, price: i.product.price })));
+    setEditPaymentType(sale.paymentType);
+    setEditCustomerId(sale.customerId ?? '');
+    setEditReason('');
+    setEditError('');
+    setAddProductId('');
+  };
+
+  const editTotal = useMemo(() => round2(editLines.reduce((s, l) => s + l.quantity * l.price, 0)), [editLines]);
+
+  const handleSaveEdit = () => {
+    if (!editingSale) return;
+    const old = editingSale;
+    const lines = editLines.filter((l) => l.quantity > 0);
+    if (lines.length === 0) { setEditError('A sale must have at least one line item with a quantity.'); return; }
+    if (editPaymentType === 'Credit' && !editCustomerId) { setEditError('Select a customer for a credit sale.'); return; }
+    if (!editReason.trim()) { setEditError('Please enter a reason for this correction.'); return; }
+
+    const newItems = lines.map((l) => ({
+      product: { ...l.product, price: l.price },
+      quantity: l.quantity,
+      subtotal: round2(l.quantity * l.price),
+      costSubtotal: round2(l.quantity * l.product.costPrice),
+    }));
+    const newTotal = round2(newItems.reduce((s, i) => s + i.subtotal, 0));
+    const newCostTotal = round2(newItems.reduce((s, i) => s + i.costSubtotal, 0));
+    const newCustomer = editPaymentType === 'Credit' ? customers.find((c) => c.id === editCustomerId) : undefined;
+
+    // --- Reconcile inventory: return old quantities, deduct new ones (net delta per product) ---
+    const qtyDelta = new Map<string, number>(); // productId -> stock change (return old, remove new)
+    old.items.forEach((i) => qtyDelta.set(i.product.id, (qtyDelta.get(i.product.id) ?? 0) + i.quantity));
+    newItems.forEach((i) => qtyDelta.set(i.product.id, (qtyDelta.get(i.product.id) ?? 0) - i.quantity));
+    setProducts(products.map((p) => {
+      const d = qtyDelta.get(p.id);
+      return d ? { ...p, stock: round2(p.stock + d) } : p;
+    }));
+
+    // --- Reconcile customer balances: reverse old credit effect, apply new credit effect ---
+    const balDelta = new Map<string, number>();
+    if (old.paymentType === 'Credit' && old.customerId) balDelta.set(old.customerId, (balDelta.get(old.customerId) ?? 0) - old.total);
+    if (editPaymentType === 'Credit' && newCustomer) balDelta.set(newCustomer.id, (balDelta.get(newCustomer.id) ?? 0) + newTotal);
+    if (balDelta.size > 0) {
+      setCustomers(customers.map((c) => {
+        const d = balDelta.get(c.id);
+        if (!d) return c;
+        const balance = Math.max(0, round2(c.balance + d));
+        return { ...c, balance, status: balance === 0 ? 'Current' : c.status };
+      }));
+    }
+
+    const edited: Sale = {
+      ...old,
+      items: newItems,
+      total: newTotal,
+      costTotal: newCostTotal,
+      surcharge: undefined, // recalculated corrections drop any prior surcharge line
+      paymentType: editPaymentType,
+      customerId: newCustomer?.id,
+      customerName: newCustomer?.name,
+      syncStatus: 'Pending Sync',
+      editedAt: new Date(),
+      editedBy: user?.email ?? 'Admin',
+      editReason: editReason.trim(),
+    };
+    setSales(sales.map((s) => (s.id === old.id ? edited : s)));
+    setSelectedSale(edited);
+    setEditingSale(null);
   };
 
   const handleExportCSV = () => {
@@ -267,6 +353,7 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
                   <td className="py-4 px-6 text-sm font-mono">
                     {sale.id}
                     {sale.status !== 'Completed' && <span className="ml-2 text-[10px] bg-red-500/10 text-red-500 px-2 py-0.5 rounded font-sans uppercase font-bold tracking-widest">{sale.status}</span>}
+                    {sale.status === 'Completed' && sale.editedAt && <span className="ml-2 text-[10px] bg-[#3B82F6]/10 text-[#3B82F6] px-2 py-0.5 rounded font-sans uppercase font-bold tracking-widest">Edited</span>}
                   </td>
                   <td className="py-4 px-6 text-sm text-[#888]">{sale.date.toLocaleString()}</td>
                   <td className="py-4 px-6 text-xs font-bold uppercase tracking-widest">{sale.operator}</td>
@@ -351,6 +438,15 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
                   </div>
                 )}
 
+                {selectedSale.editedAt && (
+                  <div className="bg-[#3B82F6]/10 border border-[#3B82F6]/20 p-4 rounded-xl">
+                    <div className="text-xs font-bold uppercase tracking-widest text-[#3B82F6] mb-1 flex items-center gap-2">
+                      <Pencil className="w-3.5 h-3.5" /> Corrected by admin — {new Date(selectedSale.editedAt).toLocaleString()}
+                    </div>
+                    <div className="text-sm text-[#c7d7f5]">{selectedSale.editReason}</div>
+                  </div>
+                )}
+
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-widest text-[#888] mb-3">Line Items</h4>
                   <div className="bg-[#111] border border-[#262626] rounded-xl overflow-hidden">
@@ -409,13 +505,24 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
                    />
                  </div>
                  {selectedSale.status === 'Completed' && !readOnly && (
-                   <button
-                     onClick={() => setVoidingSale(selectedSale)}
-                     className="bg-red-500/10 text-red-500 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-colors cursor-pointer flex items-center gap-2 border border-red-500/20"
-                   >
-                     <Trash2 className="w-4 h-4" />
-                     Void / Refund Sale
-                   </button>
+                   <div className="flex flex-wrap gap-3">
+                     {isAdmin && (
+                       <button
+                         onClick={() => openEditor(selectedSale)}
+                         className="bg-[#3B82F6]/10 text-[#3B82F6] px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#3B82F6] hover:text-white transition-colors cursor-pointer flex items-center gap-2 border border-[#3B82F6]/20"
+                       >
+                         <Pencil className="w-4 h-4" />
+                         Edit / Correct Sale
+                       </button>
+                     )}
+                     <button
+                       onClick={() => setVoidingSale(selectedSale)}
+                       className="bg-red-500/10 text-red-500 px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-colors cursor-pointer flex items-center gap-2 border border-red-500/20"
+                     >
+                       <Trash2 className="w-4 h-4" />
+                       Void / Refund Sale
+                     </button>
+                   </div>
                  )}
               </div>
            </div>
@@ -453,7 +560,7 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
                >
                  Cancel
                </button>
-               <button 
+               <button
                  onClick={handleVoidSale}
                  disabled={!voidReason.trim()}
                  className="bg-red-500 text-white px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-red-600 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
@@ -461,6 +568,155 @@ export default function SalesHistoryArea({ onBack }: { onBack: () => void }) {
                  Confirm Void
                </button>
              </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Edit / Correct Sale Modal */}
+      {editingSale && (
+        <div className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60] p-4">
+          <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="p-6 border-b border-[#262626] flex justify-between items-start bg-[#111] shrink-0">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-[#888] mb-1">Admin Correction</div>
+                <div className="text-2xl font-bold">Edit Receipt #{editingSale.id}</div>
+              </div>
+              <button onClick={() => setEditingSale(null)} className="text-[#555] hover:text-white cursor-pointer p-2 bg-[#222] rounded-full">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 space-y-6">
+              {editError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-500 p-4 rounded-xl text-sm font-semibold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" /> {editError}
+                </div>
+              )}
+
+              {/* Payment type + customer */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Payment Type</label>
+                  <select
+                    value={editPaymentType}
+                    onChange={(e) => setEditPaymentType(e.target.value as 'Cash' | 'Credit')}
+                    className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none cursor-pointer"
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Credit">Credit</option>
+                  </select>
+                </div>
+                {editPaymentType === 'Credit' && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Customer</label>
+                    <select
+                      value={editCustomerId}
+                      onChange={(e) => setEditCustomerId(e.target.value)}
+                      className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] appearance-none cursor-pointer"
+                    >
+                      <option value="">Select customer...</option>
+                      {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Line items */}
+              <div className="bg-[#111] border border-[#262626] rounded-2xl p-4 space-y-3">
+                <div className="text-xs font-bold uppercase tracking-widest text-[#888]">Line Items</div>
+                {editLines.map((line, idx) => (
+                  <div key={idx} className="flex flex-wrap gap-3 items-end bg-[#151515] p-3 rounded-xl border border-[#262626]">
+                    <div className="flex-1 min-w-[140px]">
+                      <div className="text-[10px] uppercase tracking-widest text-[#555] mb-1">Product</div>
+                      <div className="text-sm font-semibold">{line.product.name}</div>
+                    </div>
+                    <div className="w-24">
+                      <label className="block text-[10px] uppercase tracking-widest text-[#555] mb-1">Qty ({line.product.unit})</label>
+                      <input
+                        type="number"
+                        value={line.quantity || ''}
+                        onChange={(e) => setEditLines(editLines.map((l, i) => i === idx ? { ...l, quantity: Number(e.target.value) } : l))}
+                        className="w-full bg-[#222] border border-[#333] rounded-lg py-2 px-3 text-sm font-mono focus:outline-none focus:border-[#555]"
+                      />
+                    </div>
+                    <div className="w-28">
+                      <label className="block text-[10px] uppercase tracking-widest text-[#555] mb-1">Unit Price</label>
+                      <input
+                        type="number"
+                        value={line.price || ''}
+                        onChange={(e) => setEditLines(editLines.map((l, i) => i === idx ? { ...l, price: Number(e.target.value) } : l))}
+                        className="w-full bg-[#222] border border-[#333] rounded-lg py-2 px-3 text-sm font-mono focus:outline-none focus:border-[#555]"
+                      />
+                    </div>
+                    <div className="w-24 text-right">
+                      <div className="text-[10px] uppercase tracking-widest text-[#555] mb-1">Subtotal</div>
+                      <div className="text-sm font-mono">N$ {round2(line.quantity * line.price).toFixed(2)}</div>
+                    </div>
+                    <button
+                      onClick={() => setEditLines(editLines.filter((_, i) => i !== idx))}
+                      className="text-red-500 hover:text-red-400 p-2 cursor-pointer rounded-lg hover:bg-red-500/10 mb-[2px]"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Add a line */}
+                <div className="flex gap-2 pt-2 border-t border-[#262626]">
+                  <select
+                    value={addProductId}
+                    onChange={(e) => setAddProductId(e.target.value)}
+                    className="flex-1 bg-[#222] border border-[#333] rounded-lg py-2 px-3 text-sm focus:outline-none focus:border-[#555] appearance-none cursor-pointer"
+                  >
+                    <option value="">Add a product…</option>
+                    {products.map((p) => <option key={p.id} value={p.id}>{p.name} — N$ {p.price.toFixed(2)}/{p.unit}</option>)}
+                  </select>
+                  <button
+                    onClick={() => {
+                      const p = products.find((pr) => pr.id === addProductId);
+                      if (!p) return;
+                      setEditLines([...editLines, { product: p, quantity: 1, price: p.price }]);
+                      setAddProductId('');
+                    }}
+                    disabled={!addProductId}
+                    className="bg-[#222] border border-[#333] text-white px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-widest hover:bg-[#333] transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <Plus className="w-4 h-4" /> Add
+                  </button>
+                </div>
+              </div>
+
+              {/* Reason (required) */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-[#888] mb-2">Reason for Correction *</label>
+                <textarea
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  placeholder="e.g. Wrong weight entered, price typo…"
+                  className="w-full bg-[#222] border border-[#333] rounded-xl p-4 text-sm focus:outline-none focus:border-[#555] min-h-[70px] resize-none"
+                />
+              </div>
+
+              <p className="text-xs text-[#555]">Saving adjusts stock and, for credit sales, the customer's outstanding balance to match the corrected sale.</p>
+            </div>
+
+            <div className="p-6 border-t border-[#262626] flex justify-between items-center shrink-0 bg-[#111]">
+              <div className="text-right">
+                <div className="text-[10px] uppercase tracking-widest text-[#888]">New Total</div>
+                <div className="text-2xl font-mono font-bold">N$ {editTotal.toFixed(2)}</div>
+              </div>
+              <div className="flex gap-4">
+                <button onClick={() => setEditingSale(null)} className="px-6 py-3 rounded-xl text-xs font-bold uppercase tracking-widest text-[#888] hover:text-white transition-colors cursor-pointer">
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="bg-[#3B82F6] text-white px-8 py-3 rounded-xl text-xs font-bold uppercase tracking-widest hover:bg-[#2563EB] transition-colors cursor-pointer shadow-[0_0_15px_rgba(59,130,246,0.3)]"
+                >
+                  Save Correction
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
