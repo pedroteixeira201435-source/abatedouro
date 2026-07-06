@@ -298,7 +298,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
       {/* Add Customer Modal */}
       {isAddingCustomer && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-           <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-xl overflow-hidden flex flex-col">
+           <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-xl max-h-[90dvh] overflow-hidden flex flex-col">
               <div className="p-6 border-b border-[#262626] flex justify-between items-start bg-[#111]">
                  <div>
                    <div className="text-xs uppercase tracking-widest text-[#888] mb-1">Customer Management</div>
@@ -624,7 +624,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
       {/* Record Payment Modal */}
       {isRecordingPayment && selectedCustomer && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4">
-           <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-md overflow-hidden flex flex-col shadow-2xl">
+           <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-md max-h-[90dvh] overflow-hidden flex flex-col shadow-2xl">
               <div className="p-6 border-b border-[#262626] flex justify-between items-center bg-[#111]">
                  <div>
                    <div className="text-xs uppercase tracking-widest text-[#888] mb-1">Record Payment</div>
@@ -635,7 +635,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                  </button>
               </div>
               
-              <div className="p-6 space-y-6">
+              <div className="p-6 space-y-6 overflow-y-auto flex-1">
                 <div className="bg-[#111] p-4 rounded-xl border border-[#262626] flex justify-between items-center">
                   <span className="text-sm font-bold uppercase tracking-widest text-[#888]">Current Balance</span>
                   <span className="text-xl font-mono font-bold text-red-500">N$ {selectedCustomer.balance.toFixed(2)}</span>
