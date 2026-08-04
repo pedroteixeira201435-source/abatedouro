@@ -5,6 +5,7 @@ import { buildReports } from '../finance/engine';
 import { CHART_OF_ACCOUNTS, NAMRA_WEAR_AND_TEAR } from '../finance/chartOfAccounts';
 import { FixedAsset, ManualEntry, PriorYear, FinanceSettings } from '../finance/types';
 import AFSDocument from './AFSDocument';
+import AttachmentField from './AttachmentField';
 
 type Tab = 'kpi' | 'income' | 'balance' | 'cashflow' | 'tax' | 'vat' | 'trial' | 'equity' | 'aging' | 'afs' | 'setup';
 
@@ -502,13 +503,18 @@ export default function ReportsArea({ onBack }: { onBack: () => void }) {
                 </div>
                 {finance.assets.length === 0 && <p className="text-sm text-[#555] italic">No assets. Add cattle plant, vehicles, equipment…</p>}
                 {finance.assets.map((a) => (
-                  <div key={a.id} className="flex flex-wrap gap-2 items-end mt-3">
-                    <input placeholder="Description" className={inputCls + ' flex-1'} value={a.description} onChange={(e) => updateAsset(a.id, { description: e.target.value })} />
-                    <select className={inputCls + ' flex-1'} value={a.category} onChange={(e) => updateAsset(a.id, { category: e.target.value as FixedAsset['category'] })}>
-                      {Object.keys(NAMRA_WEAR_AND_TEAR).map((c) => <option key={c} value={c}>{c} ({pct(NAMRA_WEAR_AND_TEAR[c])})</option>)}
-                    </select>
-                    <input type="number" placeholder="Cost" className={inputCls + ' w-28'} value={a.cost || ''} onChange={(e) => updateAsset(a.id, { cost: Number(e.target.value) })} />
-                    <button onClick={() => removeAsset(a.id)} className="text-red-500 p-2 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                  <div key={a.id} className="mt-3 pt-3 border-t border-[#222] first:border-t-0 first:pt-0 first:mt-3">
+                    <div className="flex flex-wrap gap-2 items-end">
+                      <input placeholder="Description" className={inputCls + ' flex-1'} value={a.description} onChange={(e) => updateAsset(a.id, { description: e.target.value })} />
+                      <select className={inputCls + ' flex-1'} value={a.category} onChange={(e) => updateAsset(a.id, { category: e.target.value as FixedAsset['category'] })}>
+                        {Object.keys(NAMRA_WEAR_AND_TEAR).map((c) => <option key={c} value={c}>{c} ({pct(NAMRA_WEAR_AND_TEAR[c])})</option>)}
+                      </select>
+                      <input type="number" placeholder="Cost" className={inputCls + ' w-28'} value={a.cost || ''} onChange={(e) => updateAsset(a.id, { cost: Number(e.target.value) })} />
+                      <button onClick={() => removeAsset(a.id)} className="text-red-500 p-2 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    <div className="mt-2">
+                      <AttachmentField category="assets" label="Acquisition invoice" attachments={a.attachments} onChange={(next) => updateAsset(a.id, { attachments: next })} />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -521,16 +527,21 @@ export default function ReportsArea({ onBack }: { onBack: () => void }) {
                 </div>
                 {finance.manualEntries.length === 0 && <p className="text-sm text-[#555] italic">No entries. Book rent, salaries, utilities, depreciation, share capital, loans…</p>}
                 {finance.manualEntries.map((e) => (
-                  <div key={e.id} className="flex gap-2 items-end mt-3 flex-wrap">
-                    <input placeholder="Description" className={inputCls + ' flex-1 min-w-[120px]'} value={e.description} onChange={(ev) => updateEntry(e.id, { description: ev.target.value })} />
-                    <select className={inputCls + ' w-44'} value={e.debitAccount} onChange={(ev) => updateEntry(e.id, { debitAccount: ev.target.value })}>
-                      {CHART_OF_ACCOUNTS.map((a) => <option key={a.name} value={a.name}>Dr: {a.name}</option>)}
-                    </select>
-                    <select className={inputCls + ' w-44'} value={e.creditAccount} onChange={(ev) => updateEntry(e.id, { creditAccount: ev.target.value })}>
-                      {CHART_OF_ACCOUNTS.map((a) => <option key={a.name} value={a.name}>Cr: {a.name}</option>)}
-                    </select>
-                    <input type="number" placeholder="Amount" className={inputCls + ' w-28'} value={e.amount || ''} onChange={(ev) => updateEntry(e.id, { amount: Number(ev.target.value) })} />
-                    <button onClick={() => removeEntry(e.id)} className="text-red-500 p-2 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                  <div key={e.id} className="mt-3 pt-3 border-t border-[#222] first:border-t-0 first:pt-0 first:mt-3">
+                    <div className="flex gap-2 items-end flex-wrap">
+                      <input placeholder="Description" className={inputCls + ' flex-1 min-w-[120px]'} value={e.description} onChange={(ev) => updateEntry(e.id, { description: ev.target.value })} />
+                      <select className={inputCls + ' w-44'} value={e.debitAccount} onChange={(ev) => updateEntry(e.id, { debitAccount: ev.target.value })}>
+                        {CHART_OF_ACCOUNTS.map((a) => <option key={a.name} value={a.name}>Dr: {a.name}</option>)}
+                      </select>
+                      <select className={inputCls + ' w-44'} value={e.creditAccount} onChange={(ev) => updateEntry(e.id, { creditAccount: ev.target.value })}>
+                        {CHART_OF_ACCOUNTS.map((a) => <option key={a.name} value={a.name}>Cr: {a.name}</option>)}
+                      </select>
+                      <input type="number" placeholder="Amount" className={inputCls + ' w-28'} value={e.amount || ''} onChange={(ev) => updateEntry(e.id, { amount: Number(ev.target.value) })} />
+                      <button onClick={() => removeEntry(e.id)} className="text-red-500 p-2 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
+                    </div>
+                    <div className="mt-2">
+                      <AttachmentField category="bank-statements" label="Bank statement / receipt" attachments={e.attachments} onChange={(next) => updateEntry(e.id, { attachments: next })} />
+                    </div>
                   </div>
                 ))}
               </div>

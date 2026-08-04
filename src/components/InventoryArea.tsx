@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, Plus, Filter, ArrowUpDown, Clock, Check, AlertTriangle, ChevronDown, PackagePlus, ArrowRightLeft, X } from 'lucide-react';
+import { Search, Plus, Filter, ArrowUpDown, Clock, Check, AlertTriangle, ChevronDown, PackagePlus, ArrowRightLeft, X, Paperclip } from 'lucide-react';
 import { Product, Category, Purchase, PurchaseItem } from '../types';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
+import AttachmentField from './AttachmentField';
 
 interface InventoryAreaProps {
   onBack: () => void;
@@ -26,6 +27,13 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
 
   // Detail Modal State
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedPurchase, setSelectedPurchase] = useState<Purchase | null>(null);
+
+  // Patch a purchase's attachments in both the list and the open detail modal.
+  const setPurchaseAttachments = (id: string, attachments: Purchase['attachments']) => {
+    setPurchases(purchases.map(p => (p.id === id ? { ...p, attachments } : p)));
+    setSelectedPurchase(prev => (prev && prev.id === id ? { ...prev, attachments } : prev));
+  };
 
   const handleRestock = () => {
     if (!selectedProduct || restockAmount <= 0) return;
@@ -191,6 +199,7 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
       totalCost: calculatedTotal,
       notes: newPurchaseData.notes,
       operator,
+      attachments: newPurchaseData.attachments,
     };
 
     setPurchases([newPurchase, ...purchases]);
@@ -421,10 +430,19 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
                   </thead>
                   <tbody>
                     {filteredPurchases.map(purchase => (
-                      <tr key={purchase.id} className="border-b border-[#262626] hover:bg-[#222] transition-colors cursor-pointer">
+                      <tr key={purchase.id} onClick={() => setSelectedPurchase(purchase)} className="border-b border-[#262626] hover:bg-[#222] transition-colors cursor-pointer">
                         <td className="py-4 px-6 text-sm text-[#888]">{purchase.date.toLocaleDateString()}</td>
                         <td className="py-4 px-6 text-sm font-semibold">{purchase.type}</td>
-                        <td className="py-4 px-6 text-sm">{purchase.supplier}</td>
+                        <td className="py-4 px-6 text-sm">
+                          <span className="inline-flex items-center gap-2">
+                            {purchase.supplier}
+                            {purchase.attachments && purchase.attachments.length > 0 && (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] text-[#10B981]" title={`${purchase.attachments.length} document(s)`}>
+                                <Paperclip className="w-3 h-3" />{purchase.attachments.length}
+                              </span>
+                            )}
+                          </span>
+                        </td>
                         <td className="py-4 px-6 text-sm font-mono text-right font-bold text-[#E4E3E0]">N$ {purchase.totalCost.toFixed(2)}</td>
                       </tr>
                     ))}
@@ -964,7 +982,16 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
                     value={newPurchaseData.notes}
                     onChange={e => setNewPurchaseData({...newPurchaseData, notes: e.target.value})}
                     placeholder="Optional notes or references..."
-                    className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] min-h-[80px]" 
+                    className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555] min-h-[80px]"
+                  />
+                </div>
+
+                <div className="bg-[#151515] border border-[#262626] rounded-xl p-4">
+                  <AttachmentField
+                    category="purchases"
+                    label="Supplier invoice"
+                    attachments={newPurchaseData.attachments}
+                    onChange={(next) => setNewPurchaseData({ ...newPurchaseData, attachments: next })}
                   />
                 </div>
               </div>
@@ -978,6 +1005,38 @@ export default function InventoryArea({ onBack, backLabel = 'Back to Dashboard',
                  </button>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* Purchase detail — view info + manage supporting documents (invoice) */}
+      {selectedPurchase && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setSelectedPurchase(null)}>
+          <div className="bg-[#151515] border border-[#262626] rounded-3xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-[#262626] flex justify-between items-start bg-[#111]">
+              <div>
+                <div className="text-xs uppercase tracking-widest text-[#888] mb-1">Purchase {selectedPurchase.id}</div>
+                <div className="text-xl font-bold">{selectedPurchase.supplier}</div>
+                <div className="text-xs text-[#888] mt-1">{selectedPurchase.type} · {selectedPurchase.date.toLocaleDateString()} · N$ {selectedPurchase.totalCost.toFixed(2)}</div>
+              </div>
+              <button onClick={() => setSelectedPurchase(null)} className="text-[#555] hover:text-white cursor-pointer p-2 bg-[#222] rounded-full">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {selectedPurchase.notes && (
+                <p className="text-sm text-[#AAA]">{selectedPurchase.notes}</p>
+              )}
+              <div className="bg-[#111] border border-[#262626] rounded-xl p-4">
+                <AttachmentField
+                  category="purchases"
+                  label="Supplier invoice"
+                  readOnly={readOnly}
+                  attachments={selectedPurchase.attachments}
+                  onChange={(next) => setPurchaseAttachments(selectedPurchase.id, next)}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

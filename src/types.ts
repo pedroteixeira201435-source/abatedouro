@@ -1,5 +1,20 @@
 export type Category = 'Cattle Cuts' | 'Manufactured' | 'Resale';
 
+/**
+ * A supporting document (invoice, bank statement, transfer proof) attached to a record.
+ * The binary lives in Supabase Storage (bucket `documents`); only this metadata is kept
+ * in the synced snapshot. No OCR/AI — the file is stored and shown, values are keyed by hand.
+ */
+export interface Attachment {
+  id: string;
+  name: string;      // original filename
+  path: string;      // object path within the `documents` bucket
+  mime: string;      // application/pdf | image/png | image/jpeg | image/webp
+  size: number;      // bytes
+  uploadedAt: string;// ISO string (kept as string so reviveDates need not change)
+  uploadedBy: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -53,6 +68,8 @@ export interface Payment {
   operator: string;
   note?: string;
   syncStatus: 'Synced' | 'Pending Sync';
+  /** Supporting documents (e.g. bank transfer proof). */
+  attachments?: Attachment[];
 }
 
 export interface PurchaseItem {
@@ -71,6 +88,8 @@ export interface Purchase {
   totalCost: number;
   notes?: string;
   operator: string;
+  /** Supporting documents (e.g. supplier invoice PDF/photo). */
+  attachments?: Attachment[];
 }
 
 /** Interest charged on overdue credit — either a flat N$ amount or a percentage of the overdue balance. */

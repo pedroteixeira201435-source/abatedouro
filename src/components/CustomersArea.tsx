@@ -1,8 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Check, AlertTriangle, ArrowLeft, X, UserPlus, Phone, Mail, MapPin, Receipt, Wallet, Banknote, Trash2, Percent } from 'lucide-react';
-import { Customer, Sale, Payment, InterestCharge } from '../types';
+import { Search, Check, AlertTriangle, ArrowLeft, X, UserPlus, Phone, Mail, MapPin, Receipt, Wallet, Banknote, Trash2, Percent, Paperclip } from 'lucide-react';
+import { Customer, Sale, Payment, InterestCharge, Attachment } from '../types';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
+import AttachmentField from './AttachmentField';
+import { attachmentUrl } from '../lib/attachments';
 import { effectiveInterest, computeInterest, currentMonthKey, interestLabel } from '../lib/credit';
 import { formatStatementText, buildStatementPdf } from '../lib/invoice';
 import InvoiceActions from './InvoiceActions';
@@ -31,7 +33,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
 
   // Payment State
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
-  const [paymentData, setPaymentData] = useState<{amount: number; method: 'Cash' | 'Bank Transfer' | 'Other'; note: string}>({
+  const [paymentData, setPaymentData] = useState<{amount: number; method: 'Cash' | 'Bank Transfer' | 'Other'; note: string; attachments?: Attachment[]}>({
     amount: 0,
     method: 'Bank Transfer',
     note: ''
@@ -99,7 +101,8 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
       method: paymentData.method,
       operator,
       note: paymentData.note,
-      syncStatus: 'Pending Sync'
+      syncStatus: 'Pending Sync',
+      attachments: paymentData.attachments
     };
 
     const updatedCustomer = {
@@ -116,7 +119,7 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
     setCustomers(customers.map(c => c.id === updatedCustomer.id ? updatedCustomer : c));
     setSelectedCustomer(updatedCustomer);
     setIsRecordingPayment(false);
-    setPaymentData({ amount: 0, method: 'Bank Transfer', note: '' });
+    setPaymentData({ amount: 0, method: 'Bank Transfer', note: '', attachments: undefined });
   };
 
   const handleDeleteCustomer = () => {
@@ -602,7 +605,24 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                                 <tr key={payment.id} className="border-b border-[#262626] last:border-0">
                                   <td className="py-3 px-4 text-sm text-[#888]">{payment.date.toLocaleDateString()}</td>
                                   <td className="py-3 px-4 text-sm">{payment.method}</td>
-                                  <td className="py-3 px-4 text-sm text-[#555] truncate max-w-[150px]">{payment.note}</td>
+                                  <td className="py-3 px-4 text-sm text-[#555] max-w-[150px]">
+                                    <span className="truncate block">{payment.note}</span>
+                                    {payment.attachments && payment.attachments.length > 0 && (
+                                      <span className="flex flex-wrap gap-2 mt-1">
+                                        {payment.attachments.map(a => (
+                                          <button
+                                            key={a.id}
+                                            type="button"
+                                            onClick={async () => { try { window.open(await attachmentUrl(a.path), '_blank', 'noopener,noreferrer'); } catch { /* ignore */ } }}
+                                            title={a.name}
+                                            className="inline-flex items-center gap-0.5 text-[10px] text-[#10B981] hover:underline cursor-pointer"
+                                          >
+                                            <Paperclip className="w-3 h-3" /> proof
+                                          </button>
+                                        ))}
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="py-3 px-4 text-sm font-mono font-bold text-[#10B981] text-right">
                                     - N$ {payment.amount.toFixed(2)}
                                   </td>
@@ -681,6 +701,15 @@ export default function CustomersArea({ onBack }: { onBack: () => void }) {
                     onChange={e => setPaymentData({...paymentData, note: e.target.value})}
                     className="w-full bg-[#222] border border-[#333] rounded-xl py-3 px-4 text-sm focus:outline-none focus:border-[#555]" 
                     placeholder="e.g., EFT Ref: #12345"
+                  />
+                </div>
+
+                <div className="bg-[#111] border border-[#262626] rounded-xl p-4">
+                  <AttachmentField
+                    category="payments"
+                    label="Transfer proof"
+                    attachments={paymentData.attachments}
+                    onChange={(next) => setPaymentData({ ...paymentData, attachments: next })}
                   />
                 </div>
               </div>

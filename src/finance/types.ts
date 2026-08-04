@@ -1,5 +1,7 @@
 /** Finance configuration & inputs the POS does not capture (mirrors Settings / Prior Year / Asset Register). */
 
+import type { Attachment } from '../types';
+
 export interface JournalLine {
   account: string;
   debit: number;
@@ -52,6 +54,8 @@ export interface FixedAsset {
   description: string;
   category: 'Computers & Equipment' | 'Motor Vehicles' | 'Plant & Machinery' | 'Industrial Buildings';
   cost: number;
+  /** Supporting documents (e.g. acquisition invoice backing the capital allowance). */
+  attachments?: Attachment[];
 }
 
 /** Manual journal entry for things the POS does not generate (expenses, capital, loans, depreciation). */
@@ -63,6 +67,8 @@ export interface ManualEntry {
   creditAccount: string;
   amount: number;
   vat: boolean;
+  /** Supporting documents (e.g. bank statement page backing this entry). */
+  attachments?: Attachment[];
 }
 
 export interface FinanceConfig {
