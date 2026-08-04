@@ -15,6 +15,22 @@ export interface Attachment {
   uploadedBy: string;
 }
 
+export type DocumentKind = 'invoice' | 'bank-statement' | 'other';
+
+/**
+ * A stand-alone document in the Documents hub — an invoice or bank statement uploaded
+ * directly (not tied to a purchase/journal entry). Extends {@link Attachment} with a
+ * kind tag and optional, hand-typed metadata (no OCR). Persisted in the synced snapshot.
+ */
+export interface StoredDocument extends Attachment {
+  kind: DocumentKind;
+  /** Supplier / bank / free description (optional, typed by hand). */
+  reference?: string;
+  /** Date on the document, `yyyy-mm-dd` (stays a string — no time part, so reviveDates skips it). */
+  docDate?: string;
+  amount?: number;
+}
+
 export interface Product {
   id: string;
   name: string;

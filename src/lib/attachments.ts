@@ -33,7 +33,9 @@ export type AttachmentCategory =
   | 'purchases'
   | 'bank-statements'
   | 'payments'
-  | 'assets';
+  | 'assets'
+  | 'invoices'
+  | 'documents';
 
 function sanitizeName(name: string): string {
   return name.replace(/[^\w.\-]+/g, '_').slice(-100);

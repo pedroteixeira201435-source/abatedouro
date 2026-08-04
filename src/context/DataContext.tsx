@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState, ReactNode, Dispatch, SetStateAction } from 'react';
-import { Product, Sale, Purchase, Customer, BusinessSettings, DEFAULT_BUSINESS_SETTINGS } from '../types';
+import { Product, Sale, Purchase, Customer, BusinessSettings, DEFAULT_BUSINESS_SETTINGS, StoredDocument } from '../types';
 import { DUMMY_PRODUCTS, DUMMY_CUSTOMERS, DUMMY_SALES } from '../data';
 import { FinanceConfig, DEFAULT_FINANCE_CONFIG } from '../finance/types';
 import { ActivationRecord } from '../lib/activation';
@@ -17,6 +17,9 @@ interface DataContextValue {
   setPurchases: Dispatch<SetStateAction<Purchase[]>>;
   customers: Customer[];
   setCustomers: Dispatch<SetStateAction<Customer[]>>;
+  /** Stand-alone documents (invoices / bank statements) uploaded in the Documents hub. */
+  documents: StoredDocument[];
+  setDocuments: Dispatch<SetStateAction<StoredDocument[]>>;
   finance: FinanceConfig;
   setFinance: Dispatch<SetStateAction<FinanceConfig>>;
   settings: BusinessSettings;
@@ -56,6 +59,7 @@ interface PersistShape {
   sales: Sale[];
   purchases: Purchase[];
   customers: Customer[];
+  documents: StoredDocument[];
   finance: FinanceConfig;
   settings: BusinessSettings;
   activation: ActivationRecord | null;
@@ -68,6 +72,7 @@ function fallbackData(): PersistShape {
     sales: DUMMY_SALES,
     purchases: [],
     customers: DUMMY_CUSTOMERS,
+    documents: [],
     finance: DEFAULT_FINANCE_CONFIG,
     settings: DEFAULT_BUSINESS_SETTINGS,
     activation: null,
@@ -118,6 +123,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [sales, setSales] = useState<Sale[]>(initial.sales);
   const [purchases, setPurchases] = useState<Purchase[]>(initial.purchases);
   const [customers, setCustomers] = useState<Customer[]>(initial.customers);
+  const [documents, setDocuments] = useState<StoredDocument[]>(initial.documents);
   const [finance, setFinance] = useState<FinanceConfig>(initial.finance);
   const [settings, setSettings] = useState<BusinessSettings>(initial.settings);
   const [activation, setActivation] = useState<ActivationRecord | null>(initial.activation);
@@ -136,6 +142,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (snap.sales) setSales(snap.sales);
     if (snap.purchases) setPurchases(snap.purchases);
     if (snap.customers) setCustomers(snap.customers);
+    if (snap.documents) setDocuments(snap.documents);
     setFinance(mergeFinance(snap.finance));
     setSettings(mergeSettings(snap.settings));
     setActivation(snap.activation ?? null);
@@ -170,7 +177,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
         // Fresh company → start CLEAN. Never seed a new tenant from this browser's local cache
         // (which may hold another session's data), otherwise a new account inherits stray data.
         const empty: PersistShape = {
-          products: [], sales: [], purchases: [], customers: [],
+          products: [], sales: [], purchases: [], customers: [], documents: [],
           finance: DEFAULT_FINANCE_CONFIG, settings: DEFAULT_BUSINESS_SETTINGS,
           activation: null, activationUsedKeys: [],
         };
@@ -208,7 +215,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId]);
 
-  const snapshot = (): PersistShape => ({ products, sales, purchases, customers, finance, settings, activation, activationUsedKeys });
+  const snapshot = (): PersistShape => ({ products, sales, purchases, customers, documents, finance, settings, activation, activationUsedKeys });
 
   const pushData = async (data: PersistShape) => {
     if (!supabase || !companyId) return;
@@ -242,7 +249,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => { void pushSnapshot(); }, 1500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, sales, purchases, customers, finance, settings, activation, activationUsedKeys]);
+  }, [products, sales, purchases, customers, documents, finance, settings, activation, activationUsedKeys]);
 
   useEffect(() => {
     if (configured && !companyId) setSyncStatus('local');
@@ -281,7 +288,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   return (
     <DataContext.Provider
-      value={{ products, setProducts, sales, setSales, purchases, setPurchases, customers, setCustomers, finance, setFinance, settings, setSettings, activation, setActivation, activationUsedKeys, setActivationUsedKeys, hydrated, resetData, recordSale, syncStatus, lastSyncAt }}
+      value={{ products, setProducts, sales, setSales, purchases, setPurchases, customers, setCustomers, documents, setDocuments, finance, setFinance, settings, setSettings, activation, setActivation, activationUsedKeys, setActivationUsedKeys, hydrated, resetData, recordSale, syncStatus, lastSyncAt }}
     >
       {children}
     </DataContext.Provider>

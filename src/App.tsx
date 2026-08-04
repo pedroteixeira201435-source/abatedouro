@@ -4,8 +4,9 @@
  */
 
 import { useMemo, useState } from 'react';
-import { PlusCircle } from "lucide-react";
+import { PlusCircle, FileText } from "lucide-react";
 import TillArea from './components/TillArea';
+import DocumentsArea from './components/DocumentsArea';
 import InventoryArea from './components/InventoryArea';
 import SalesHistoryArea from './components/SalesHistoryArea';
 import CustomersArea from './components/CustomersArea';
@@ -21,7 +22,7 @@ import { computeStatus } from './lib/activation';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
-  const [view, setView] = useState<'dashboard' | 'till' | 'inventory' | 'sales_history' | 'customers' | 'settings' | 'reports' | 'analytics'>('dashboard');
+  const [view, setView] = useState<'dashboard' | 'till' | 'inventory' | 'sales_history' | 'customers' | 'settings' | 'reports' | 'analytics' | 'documents'>('dashboard');
   const { products, sales, customers, settings, activation, hydrated, syncStatus, lastSyncAt } = useData();
   const { configured, loading, session, user, role, needsOnboarding, signOut } = useAuth();
   const businessName = settings.businessName || 'Butchery Control';
@@ -117,6 +118,10 @@ export default function App() {
     return <AnalyticsArea onBack={() => setView('dashboard')} />;
   }
 
+  if (view === 'documents') {
+    return <DocumentsArea onBack={() => setView('dashboard')} />;
+  }
+
   return (
     <div className="min-h-screen w-full bg-[#0C0C0C] flex items-center justify-center p-0 sm:p-6 font-sans">
       <div className="flex flex-col min-h-screen md:min-h-0 md:h-[768px] w-full max-w-[1024px] bg-[#0C0C0C] text-[#E4E3E0] overflow-y-auto md:overflow-hidden p-4 sm:p-6 rounded-none sm:rounded-3xl border-0 sm:border border-[#262626] shadow-2xl">
@@ -131,6 +136,14 @@ export default function App() {
             </h2>
           </div>
           <div className="flex items-center gap-3 sm:gap-6">
+            <button
+              onClick={() => setView('documents')}
+              className="flex items-center gap-2 px-3 py-2 bg-[#151515] border border-[#262626] rounded-xl text-xs font-bold uppercase tracking-widest text-white hover:border-[#3a3a3a] transition-colors cursor-pointer"
+              title="Upload invoices & bank statements"
+            >
+              <FileText className="w-4 h-4 text-[#10B981]" />
+              <span className="hidden sm:inline">Documents</span>
+            </button>
             {(() => {
               const dot = syncStatus === 'synced' ? '#10B981' : syncStatus === 'error' ? '#D42C2C' : syncStatus === 'local' ? '#888' : '#EAB308';
               const label = syncStatus === 'synced' ? 'Cloud Synced' : syncStatus === 'saving' ? 'Saving…' : syncStatus === 'loading' ? 'Loading…' : syncStatus === 'error' ? 'Sync Error' : 'Local Only';
@@ -290,7 +303,14 @@ export default function App() {
             >
               Dashboard
             </button>
-            <button 
+            <button
+              onClick={() => setView('documents')}
+              className="flex items-center gap-2 px-4 py-2 bg-[#222] border border-[#3a3a3a] text-white rounded-lg text-xs font-bold uppercase tracking-widest cursor-pointer hover:bg-[#2c2c2c] transition-colors"
+            >
+              <FileText className="w-4 h-4 text-[#10B981]" />
+              Documents
+            </button>
+            <button
               onClick={() => setView('inventory')}
               className="px-4 py-2 text-[#888] hover:text-white rounded-lg text-xs font-bold uppercase tracking-widest cursor-pointer transition-colors"
             >
