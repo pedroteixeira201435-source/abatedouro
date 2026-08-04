@@ -31,6 +31,8 @@ export interface StoredDocument extends Attachment {
   /** Date on the document, `yyyy-mm-dd` (stays a string — no time part, so reviveDates skips it). */
   docDate?: string;
   amount?: number;
+  /** Set once the document has been posted into the books (Purchase or journal entry) — avoids double-posting. */
+  postedAs?: { type: 'purchase' | 'entry'; id: string; label: string };
 }
 
 export interface Product {

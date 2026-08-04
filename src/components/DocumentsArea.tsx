@@ -1,8 +1,10 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, FileText, Image as ImageIcon, Receipt, Landmark, File as FileIcon, Trash2, ExternalLink, Loader2, UploadCloud, AlertCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Image as ImageIcon, Receipt, Landmark, File as FileIcon, Trash2, ExternalLink, Loader2, UploadCloud, AlertCircle, BookPlus, CheckCircle2, Undo2 } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
-import type { Attachment, DocumentKind, StoredDocument } from '../types';
+import type { Attachment, DocumentKind, StoredDocument, Purchase } from '../types';
+import type { ManualEntry } from '../finance/types';
+import { CHART_OF_ACCOUNTS } from '../finance/chartOfAccounts';
 import {
   ACCEPT_ATTR,
   attachmentsEnabled,
@@ -38,8 +40,30 @@ function fileIcon(mime: string, accent: string) {
     : <ImageIcon className="w-5 h-5 shrink-0" style={{ color: accent }} />;
 }
 
+const EXPENSE_ACCOUNTS = CHART_OF_ACCOUNTS.filter((a) => a.category === 'Expense').map((a) => a.name);
+const CREDIT_ACCOUNTS = ['Accounts Payable', 'Cash & Cash Equivalents', 'Loans Payable', 'Accrued Liabilities'];
+const PURCHASE_TYPES: Purchase['type'][] = ['Live Cattle', 'Manufactured Ingredient', 'Resale'];
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** Strip a StoredDocument down to the base Attachment shape to attach it to a record. */
+function toAttachment(d: StoredDocument): Attachment {
+  return { id: d.id, name: d.name, path: d.path, mime: d.mime, size: d.size, uploadedAt: d.uploadedAt, uploadedBy: d.uploadedBy };
+}
+
+interface PostForm {
+  dest: 'purchase' | 'entry';
+  date: string;
+  amount: number;
+  description: string;
+  purchaseType: Purchase['type'];
+  supplier: string;
+  debitAccount: string;
+  creditAccount: string;
+  vat: boolean;
+}
+
 export default function DocumentsArea({ onBack }: Props) {
-  const { documents, setDocuments, purchases, finance, customers } = useData();
+  const { documents, setDocuments, purchases, setPurchases, finance, setFinance, customers } = useData();
   const { companyId, user, canEdit } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploadKind, setUploadKind] = useState<DocumentKind>('invoice');
@@ -47,8 +71,79 @@ export default function DocumentsArea({ onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
   const [extracting, setExtracting] = useState<Set<string>>(() => new Set());
+  const [postingId, setPostingId] = useState<string | null>(null);
+  const [postForm, setPostForm] = useState<PostForm | null>(null);
 
   const canUpload = canEdit && attachmentsEnabled && !!companyId;
+  const operator = user?.email ?? 'admin';
+
+  // Open the "post to accounts" panel with sensible defaults from the read fields.
+  const openPost = (d: StoredDocument) => {
+    setPostingId(d.id);
+    setPostForm({
+      dest: d.kind === 'bank-statement' ? 'entry' : 'purchase',
+      date: d.docDate || today(),
+      amount: d.amount ?? 0,
+      description: [d.reference, d.docNumber && `#${d.docNumber}`].filter(Boolean).join(' ') || KIND_META[d.kind].label,
+      purchaseType: 'Resale',
+      supplier: d.reference ?? '',
+      debitAccount: d.kind === 'bank-statement' ? 'Bank Charges' : 'Cost of Goods Sold',
+      creditAccount: d.kind === 'bank-statement' ? 'Cash & Cash Equivalents' : 'Accounts Payable',
+      vat: d.kind !== 'bank-statement',
+    });
+  };
+
+  const setForm = (patch: Partial<PostForm>) => setPostForm((f) => (f ? { ...f, ...patch } : f));
+
+  // Create the chosen record (Purchase or journal entry), attach the document to it,
+  // and mark the document as posted so it can't be double-posted.
+  const submitPost = (d: StoredDocument) => {
+    if (!postForm || postForm.amount <= 0) return;
+    const att = toAttachment(d);
+    if (postForm.dest === 'purchase') {
+      const id = `PUR-${Math.floor(Math.random() * 1000000).toString().padStart(6, '0')}`;
+      const purchase: Purchase = {
+        id,
+        type: postForm.purchaseType,
+        date: new Date(postForm.date),
+        supplier: postForm.supplier.trim() || 'Document',
+        items: [{ name: postForm.description || postForm.supplier || 'Invoice', quantity: 1, cost: postForm.amount }],
+        totalCost: postForm.amount,
+        notes: `From document: ${d.name}`,
+        operator,
+        attachments: [att],
+      };
+      setPurchases([purchase, ...purchases]);
+      patch(d.id, { postedAs: { type: 'purchase', id, label: `Purchase ${id}` } });
+    } else {
+      const id = Math.random().toString();
+      const entry: ManualEntry = {
+        id,
+        date: new Date(postForm.date),
+        description: postForm.description || d.name,
+        debitAccount: postForm.debitAccount,
+        creditAccount: postForm.creditAccount,
+        amount: postForm.amount,
+        vat: postForm.vat,
+        attachments: [att],
+      };
+      setFinance((f) => ({ ...f, manualEntries: [...f.manualEntries, entry] }));
+      patch(d.id, { postedAs: { type: 'entry', id, label: `Expense · ${postForm.debitAccount}` } });
+    }
+    setPostingId(null);
+    setPostForm(null);
+  };
+
+  // Reverse a posting: delete the created record and clear the link.
+  const undoPost = (d: StoredDocument) => {
+    if (!d.postedAs) return;
+    if (d.postedAs.type === 'purchase') {
+      setPurchases(purchases.filter((p) => p.id !== d.postedAs!.id));
+    } else {
+      setFinance((f) => ({ ...f, manualEntries: f.manualEntries.filter((e) => e.id !== d.postedAs!.id) }));
+    }
+    patch(d.id, { postedAs: undefined });
+  };
 
   // Read the document (client-side OCR / PDF text) and fill in any field the user
   // hasn't already typed. Best-effort — silently no-ops on failure.
@@ -255,6 +350,82 @@ export default function DocumentsArea({ onBack }: Props) {
                           <input type="number" placeholder="0.00" disabled={!canEdit} className={inputCls} value={d.amount ?? ''} onChange={(e) => patch(d.id, { amount: e.target.value === '' ? undefined : Number(e.target.value) })} />
                         </label>
                       </div>
+                    </div>
+
+                    {/* Post to accounts — turn the document into a Purchase or a journal entry */}
+                    <div className="mt-3 pt-3 border-t border-[#222]">
+                      {d.postedAs ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="flex items-center gap-1.5 text-[11px] font-bold text-[#10B981]">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Posted → {d.postedAs.label}
+                          </span>
+                          <span className="text-[10px] text-[#666]">{d.postedAs.type === 'purchase' ? 'in Inventory → Purchases' : 'in Reports → Setup'}</span>
+                          {canEdit && (
+                            <button onClick={() => undoPost(d)} className="ml-auto flex items-center gap-1 text-[10px] uppercase font-bold tracking-widest text-[#888] hover:text-red-400 cursor-pointer">
+                              <Undo2 className="w-3 h-3" /> Undo
+                            </button>
+                          )}
+                        </div>
+                      ) : canEdit && postingId !== d.id ? (
+                        <button onClick={() => openPost(d)} className="flex items-center gap-1.5 text-[11px] uppercase font-bold tracking-widest text-[#10B981] hover:text-[#34d399] cursor-pointer">
+                          <BookPlus className="w-3.5 h-3.5" /> Post to accounts
+                        </button>
+                      ) : null}
+
+                      {postingId === d.id && postForm && (
+                        <div className="mt-1 bg-[#111] border border-[#262626] rounded-xl p-3 space-y-3">
+                          {d.kind === 'bank-statement' ? (
+                            <div className="text-[10px] uppercase tracking-widest text-[#888]">Post as: <span className="text-[#E4E3E0] font-bold">Journal entry (expense)</span></div>
+                          ) : (
+                            <div className="flex gap-1 bg-[#0C0C0C] border border-[#262626] p-1 rounded-lg w-fit">
+                              {(['purchase', 'entry'] as const).map((dst) => (
+                                <button key={dst} onClick={() => setForm({ dest: dst })} className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest cursor-pointer ${postForm.dest === dst ? 'bg-[#10B981] text-white' : 'text-[#888] hover:text-white'}`}>
+                                  {dst === 'purchase' ? 'Purchase' : 'Expense'}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                            <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-widest text-[#666]">Date</span>
+                              <input type="date" className={inputCls} value={postForm.date} onChange={(e) => setForm({ date: e.target.value })} /></label>
+                            <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-widest text-[#666]">Amount (N$)</span>
+                              <input type="number" className={inputCls} value={postForm.amount || ''} onChange={(e) => setForm({ amount: Number(e.target.value) })} /></label>
+                            <label className="flex flex-col gap-1 col-span-2 sm:col-span-1"><span className="text-[10px] uppercase tracking-widest text-[#666]">Description</span>
+                              <input className={inputCls} value={postForm.description} onChange={(e) => setForm({ description: e.target.value })} /></label>
+                          </div>
+
+                          {postForm.dest === 'purchase' ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-widest text-[#666]">Type</span>
+                                <select className={inputCls} value={postForm.purchaseType} onChange={(e) => setForm({ purchaseType: e.target.value as Purchase['type'] })}>
+                                  {PURCHASE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                                </select></label>
+                              <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-widest text-[#666]">Supplier</span>
+                                <input className={inputCls} value={postForm.supplier} onChange={(e) => setForm({ supplier: e.target.value })} /></label>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 items-end">
+                              <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-widest text-[#666]">Debit (expense)</span>
+                                <select className={inputCls} value={postForm.debitAccount} onChange={(e) => setForm({ debitAccount: e.target.value })}>
+                                  {EXPENSE_ACCOUNTS.map((a) => <option key={a} value={a}>{a}</option>)}
+                                </select></label>
+                              <label className="flex flex-col gap-1"><span className="text-[10px] uppercase tracking-widest text-[#666]">Credit</span>
+                                <select className={inputCls} value={postForm.creditAccount} onChange={(e) => setForm({ creditAccount: e.target.value })}>
+                                  {CREDIT_ACCOUNTS.map((a) => <option key={a} value={a}>{a}</option>)}
+                                </select></label>
+                              <label className="flex items-center gap-2 text-[11px] text-[#AAA] pb-1.5">
+                                <input type="checkbox" checked={postForm.vat} onChange={(e) => setForm({ vat: e.target.checked })} /> VAT-inclusive
+                              </label>
+                            </div>
+                          )}
+
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button onClick={() => { setPostingId(null); setPostForm(null); }} className="px-3 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-widest text-[#888] hover:text-white cursor-pointer">Cancel</button>
+                            <button disabled={postForm.amount <= 0} onClick={() => submitPost(d)} className="px-4 py-1.5 rounded-lg text-[10px] uppercase font-bold tracking-widest bg-[#10B981] text-white hover:bg-[#059669] disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer">Post</button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </Fragment>
