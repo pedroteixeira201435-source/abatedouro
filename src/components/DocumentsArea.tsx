@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, FileText, Image as ImageIcon, Receipt, Landmark, File as FileIcon, Trash2, ExternalLink, Loader2, UploadCloud } from 'lucide-react';
+import { ArrowLeft, FileText, Image as ImageIcon, Receipt, Landmark, File as FileIcon, Trash2, ExternalLink, Loader2, UploadCloud, AlertCircle } from 'lucide-react';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import type { Attachment, DocumentKind, StoredDocument } from '../types';
@@ -147,6 +147,7 @@ export default function DocumentsArea({ onBack }: Props) {
           <UploadBtn kind="bank-statement" />
           <UploadBtn kind="other" />
         </div>
+        <p className="text-[11px] text-[#666] flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> The file is stored as-is — supplier, date and amount are typed in by hand under each document (no automatic reading).</p>
         {!attachmentsEnabled && <p className="text-xs text-[#888] italic">Sign in to upload documents (cloud storage is required).</p>}
         {error && <p className="text-xs text-red-400">{error}</p>}
 
@@ -173,9 +174,10 @@ export default function DocumentsArea({ onBack }: Props) {
           <div className="space-y-2">
             {visible.map((d) => {
               const m = KIND_META[d.kind];
+              const missing = !d.reference && !d.docNumber && !d.docDate && d.amount == null;
               return (
                 <Fragment key={d.id}>
-                  <div className="bg-[#151515] border border-[#262626] rounded-2xl p-4">
+                  <div className="bg-[#151515] border rounded-2xl p-4" style={{ borderColor: missing ? '#EAB30855' : '#262626' }}>
                     <div className="flex items-center gap-3">
                       {fileIcon(d.mime, m.accent)}
                       <button onClick={() => openDoc(d.path)} title={d.name} className="flex-1 min-w-0 text-left flex items-center gap-1.5 hover:underline cursor-pointer">
@@ -188,11 +190,35 @@ export default function DocumentsArea({ onBack }: Props) {
                         <button onClick={() => remove(d)} className="text-red-500 hover:text-red-400 p-1 cursor-pointer shrink-0" title="Delete"><Trash2 className="w-4 h-4" /></button>
                       )}
                     </div>
-                    {/* Optional hand-typed metadata (no OCR) */}
-                    <div className="flex flex-wrap gap-2 mt-3 pl-8">
-                      <input placeholder="Reference / supplier / bank" disabled={!canEdit} className={inputCls + ' flex-1 min-w-[160px]'} value={d.reference ?? ''} onChange={(e) => patch(d.id, { reference: e.target.value })} />
-                      <input type="date" disabled={!canEdit} className={inputCls} value={d.docDate ?? ''} onChange={(e) => patch(d.id, { docDate: e.target.value })} />
-                      <input type="number" placeholder="Amount (N$)" disabled={!canEdit} className={inputCls + ' w-32'} value={d.amount ?? ''} onChange={(e) => patch(d.id, { amount: e.target.value === '' ? undefined : Number(e.target.value) })} />
+
+                    {/* Hand-typed details (no OCR — the numbers do not read themselves off the file) */}
+                    <div className="mt-3 pt-3 border-t border-[#222]">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-[#888]">Details</span>
+                        {missing && (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-[#EAB308]">
+                            <AlertCircle className="w-3 h-3" /> Fill in the details below
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                        <label className="flex flex-col gap-1 col-span-2 sm:col-span-1">
+                          <span className="text-[10px] uppercase tracking-widest text-[#666]">{d.kind === 'bank-statement' ? 'Bank / account' : 'Supplier / ref'}</span>
+                          <input placeholder={d.kind === 'bank-statement' ? 'e.g. FNB — 620…' : 'e.g. Meatco'} disabled={!canEdit} className={inputCls} value={d.reference ?? ''} onChange={(e) => patch(d.id, { reference: e.target.value })} />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase tracking-widest text-[#666]">{d.kind === 'invoice' ? 'Invoice №' : 'Document №'}</span>
+                          <input placeholder="e.g. INV-1042" disabled={!canEdit} className={inputCls} value={d.docNumber ?? ''} onChange={(e) => patch(d.id, { docNumber: e.target.value })} />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase tracking-widest text-[#666]">Date</span>
+                          <input type="date" disabled={!canEdit} className={inputCls} value={d.docDate ?? ''} onChange={(e) => patch(d.id, { docDate: e.target.value })} />
+                        </label>
+                        <label className="flex flex-col gap-1">
+                          <span className="text-[10px] uppercase tracking-widest text-[#666]">Amount (N$)</span>
+                          <input type="number" placeholder="0.00" disabled={!canEdit} className={inputCls} value={d.amount ?? ''} onChange={(e) => patch(d.id, { amount: e.target.value === '' ? undefined : Number(e.target.value) })} />
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </Fragment>

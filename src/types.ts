@@ -26,6 +26,8 @@ export interface StoredDocument extends Attachment {
   kind: DocumentKind;
   /** Supplier / bank / free description (optional, typed by hand). */
   reference?: string;
+  /** Invoice / statement number (optional, typed by hand). */
+  docNumber?: string;
   /** Date on the document, `yyyy-mm-dd` (stays a string — no time part, so reviveDates skips it). */
   docDate?: string;
   amount?: number;
