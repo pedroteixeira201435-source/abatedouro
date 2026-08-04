@@ -12,6 +12,7 @@ import {
   formatSize,
   type AttachmentCategory,
 } from '../lib/attachments';
+import { extractDocumentData } from '../lib/extractDocument';
 
 interface Props {
   onBack: () => void;
@@ -45,8 +46,31 @@ export default function DocumentsArea({ onBack }: Props) {
   const [busy, setBusy] = useState<DocumentKind | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>('all');
+  const [extracting, setExtracting] = useState<Set<string>>(() => new Set());
 
   const canUpload = canEdit && attachmentsEnabled && !!companyId;
+
+  // Read the document (client-side OCR / PDF text) and fill in any field the user
+  // hasn't already typed. Best-effort — silently no-ops on failure.
+  const runExtraction = async (doc: StoredDocument, file: File) => {
+    const fields = await extractDocumentData(file, doc.kind);
+    setDocuments((prev) =>
+      prev.map((d) => {
+        if (d.id !== doc.id) return d;
+        const merged: StoredDocument = { ...d };
+        if (fields.reference && merged.reference == null) merged.reference = fields.reference;
+        if (fields.docNumber && merged.docNumber == null) merged.docNumber = fields.docNumber;
+        if (fields.docDate && merged.docDate == null) merged.docDate = fields.docDate;
+        if (fields.amount != null && merged.amount == null) merged.amount = fields.amount;
+        return merged;
+      }),
+    );
+    setExtracting((prev) => {
+      const next = new Set(prev);
+      next.delete(doc.id);
+      return next;
+    });
+  };
 
   const startUpload = (kind: DocumentKind) => {
     if (!canUpload) return;
@@ -61,13 +85,21 @@ export default function DocumentsArea({ onBack }: Props) {
     setBusy(kind);
     setError(null);
     const uploadedBy = user?.email ?? 'admin';
-    const added: StoredDocument[] = [];
+    const pairs: { doc: StoredDocument; file: File }[] = [];
     try {
       for (const file of Array.from(files)) {
         const att = await uploadAttachment(companyId, KIND_META[kind].category, file, uploadedBy);
-        added.push({ ...att, kind });
+        pairs.push({ doc: { ...att, kind }, file });
       }
-      setDocuments([...added, ...documents]);
+      const newDocs = pairs.map((p) => p.doc);
+      setDocuments([...newDocs, ...documents]);
+      // Kick off auto-extraction (non-blocking) and show a per-doc spinner meanwhile.
+      setExtracting((prev) => {
+        const next = new Set(prev);
+        newDocs.forEach((d) => next.add(d.id));
+        return next;
+      });
+      pairs.forEach((p) => void runExtraction(p.doc, p.file));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Upload failed.');
     } finally {
@@ -147,7 +179,7 @@ export default function DocumentsArea({ onBack }: Props) {
           <UploadBtn kind="bank-statement" />
           <UploadBtn kind="other" />
         </div>
-        <p className="text-[11px] text-[#666] flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> The file is stored as-is — supplier, date and amount are typed in by hand under each document (no automatic reading).</p>
+        <p className="text-[11px] text-[#666] flex items-center gap-1.5"><AlertCircle className="w-3.5 h-3.5" /> On upload we try to read the supplier, number, date and amount from the file automatically — please check and correct them.</p>
         {!attachmentsEnabled && <p className="text-xs text-[#888] italic">Sign in to upload documents (cloud storage is required).</p>}
         {error && <p className="text-xs text-red-400">{error}</p>}
 
@@ -177,7 +209,7 @@ export default function DocumentsArea({ onBack }: Props) {
               const missing = !d.reference && !d.docNumber && !d.docDate && d.amount == null;
               return (
                 <Fragment key={d.id}>
-                  <div className="bg-[#151515] border rounded-2xl p-4" style={{ borderColor: missing ? '#EAB30855' : '#262626' }}>
+                  <div className="bg-[#151515] border rounded-2xl p-4" style={{ borderColor: missing && !extracting.has(d.id) ? '#EAB30855' : '#262626' }}>
                     <div className="flex items-center gap-3">
                       {fileIcon(d.mime, m.accent)}
                       <button onClick={() => openDoc(d.path)} title={d.name} className="flex-1 min-w-0 text-left flex items-center gap-1.5 hover:underline cursor-pointer">
@@ -195,7 +227,11 @@ export default function DocumentsArea({ onBack }: Props) {
                     <div className="mt-3 pt-3 border-t border-[#222]">
                       <div className="flex items-center gap-2 mb-2">
                         <span className="text-[10px] font-bold uppercase tracking-widest text-[#888]">Details</span>
-                        {missing && (
+                        {extracting.has(d.id) ? (
+                          <span className="flex items-center gap-1 text-[10px] font-bold text-[#10B981]">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Reading document…
+                          </span>
+                        ) : missing && (
                           <span className="flex items-center gap-1 text-[10px] font-bold text-[#EAB308]">
                             <AlertCircle className="w-3 h-3" /> Fill in the details below
                           </span>
